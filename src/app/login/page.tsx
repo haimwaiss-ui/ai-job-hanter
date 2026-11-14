@@ -34,6 +34,7 @@ export default function LoginPage() {
       setError("נשלח אליך אימייל לאימות החשבון. לאחר האימות אפשר להתחבר.");
       return;
     }
+    sessionStorage.removeItem("jh-demo");
     router.push("/");
     router.refresh();
   }
