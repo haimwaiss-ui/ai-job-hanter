@@ -113,6 +113,7 @@ create table if not exists public.applications (
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  unique(user_id,id),
   constraint applications_job_fk foreign key(user_id,job_id) references public.jobs(user_id,id) on delete no action,
   constraint applications_resume_fk foreign key(user_id,resume_id) references public.resumes(user_id,id) on delete no action
 );
@@ -164,6 +165,9 @@ create policy resumes_delete_own on public.resumes for delete to authenticated u
 
 drop policy if exists jobs_select_own on public.jobs;
 create policy jobs_select_own on public.jobs for select to authenticated using (user_id = (select auth.uid()));
+drop policy if exists jobs_insert_worker on public.jobs;
+create policy jobs_insert_worker on public.jobs for insert to authenticated
+with check (user_id = (select auth.uid()) and coalesce((auth.jwt() ->> 'worker')::boolean,false));
 
 drop policy if exists applications_select_own on public.applications;
 create policy applications_select_own on public.applications for select to authenticated using (user_id = (select auth.uid()));
