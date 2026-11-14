@@ -31,7 +31,13 @@ export default function Home(){
  const [scanFrequency,setScanFrequency]=useState("daily");
  const [scanTime,setScanTime]=useState("08:00");
  const [scanEnabled,setScanEnabled]=useState(false);
- const [newUrl,setNewUrl]=useState("");\n const [profile,setProfile]=useState<Profile>(emptyProfile);\n const [saving,setSaving]=useState(false);\n const [submissionMode,setSubmissionMode]=useState("approval");\n const [autoSubmit,setAutoSubmit]=useState(false);\n const [minMatch,setMinMatch]=useState(85);\n const [insights,setInsights]=useState<any>(null);
+ const [newUrl,setNewUrl]=useState("");
+ const [profile,setProfile]=useState<Profile>(emptyProfile);
+ const [saving,setSaving]=useState(false);
+ const [submissionMode,setSubmissionMode]=useState("approval");
+ const [autoSubmit,setAutoSubmit]=useState(false);
+ const [minMatch,setMinMatch]=useState(85);
+ const [insights,setInsights]=useState<any>(null);
  useEffect(()=>{
    const isDemo=sessionStorage.getItem("jh-demo")==="1";
    const supabase=createSupabaseBrowserClient();
