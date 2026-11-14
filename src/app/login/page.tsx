@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const configured = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
   async function submit(e: React.FormEvent) {
@@ -31,12 +32,34 @@ export default function LoginPage() {
     setBusy(false);
     if (result.error) { setError(result.error.message); return; }
     if (mode === "signup" && !result.data.session) {
-      setError("נשלח אליך אימייל לאימות החשבון. לאחר האימות אפשר להתחבר.");
+      setError("ההרשמה הושלמה אך Supabase לא החזיר session. בדוק את תיבת הדואר ואת תיקיית הספאם, או לחץ על "שלח שוב אימות למייל". אם כבר אימתת את החשבון, עבור להתחברות ולא להרשמה.");
       return;
     }
     sessionStorage.removeItem("jh-demo");
     router.push("/");
     router.refresh();
+  }
+
+  async function resendConfirmation() {
+    if (!email) { setError("הזן כתובת אימייל תחילה."); return; }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    setBusy(true); setError(""); setNotice("");
+    const { error } = await supabase.auth.resend({ type: "signup", email });
+    setBusy(false);
+    if (error) setError(error.message);
+    else setNotice("אם החשבון עדיין ממתין לאימות, נשלח אליו קישור אימות. בדוק גם דואר זבל.");
+  }
+
+  async function resetPassword() {
+    if (!email) { setError("הזן כתובת אימייל תחילה."); return; }
+    const supabase = createSupabaseBrowserClient();
+    if (!supabase) return;
+    setBusy(true); setError(""); setNotice("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + "/login" });
+    setBusy(false);
+    if (error) setError(error.message);
+    else setNotice("אם קיימת כתובת כזו במערכת, נשלח אליה קישור לאיפוס סיסמה. בדוק גם דואר זבל.");
   }
 
   return (
@@ -66,6 +89,8 @@ export default function LoginPage() {
             <label>כתובת אימייל<span className="input-wrap"><Mail size={17}/><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com" required dir="ltr"/></span></label>
             <label>סיסמה<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="לפחות 8 תווים" minLength={8} required dir="ltr"/></label>
             {error && <div className="form-error">{error}</div>}
+            {notice && <div className="demo-note">{notice}</div>}
+            {mode === "login" && <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:13}}><button type="button" className="demo-link" onClick={resetPassword} disabled={busy}>שכחתי סיסמה</button><button type="button" className="demo-link" onClick={resendConfirmation} disabled={busy}>שלח שוב אימות למייל</button></div>
             <button className="btn btn-primary btn-full" disabled={busy}>{busy ? "רק רגע..." : mode === "login" ? "התחברות" : "יצירת חשבון"} <ArrowLeft size={17}/></button>
           </form>
           {!configured && <div className="demo-note"><strong>מצב Preview</strong><br/>החיבור ל-Supabase יופעל לאחר הגדרת מפתחות הפרויקט.</div>}
