@@ -32,7 +32,11 @@ export default function Home(){
  const [newLocation,setNewLocation]=useState("");
  const [demo,setDemo]=useState(true);
  const [userEmail,setUserEmail]=useState("מצב הדגמה");
- const [resume,setResume]=useState("");\n const [scanFrequency,setScanFrequency]=useState("daily");\n const [scanTime,setScanTime]=useState("08:00");\n const [scanEnabled,setScanEnabled]=useState(false);\n const [newUrl,setNewUrl]=useState("");
+ const [resume,setResume]=useState("");
+ const [scanFrequency,setScanFrequency]=useState("daily");
+ const [scanTime,setScanTime]=useState("08:00");
+ const [scanEnabled,setScanEnabled]=useState(false);
+ const [newUrl,setNewUrl]=useState("");
  useEffect(()=>{
    const isDemo=sessionStorage.getItem("jh-demo")==="1";
    const supabase=createSupabaseBrowserClient();
@@ -44,7 +48,9 @@ export default function Home(){
  function notify(s:string){setToast(s);window.setTimeout(()=>setToast(""),2600);}
  function addJob(e:React.FormEvent){e.preventDefault();if(!newTitle.trim()||!newCompany.trim())return;const next=[{id:Date.now(),title:newTitle,company:newCompany,location:newLocation||"לא צוין",match:0,status:"חדש",date:"הרגע",url:newUrl.trim()||undefined},...jobs];setJobs(next);localStorage.setItem("jh-jobs",JSON.stringify(next));setNewTitle("");setNewCompany("");setNewLocation("");setNewUrl("");setModal(false);setTab("jobs");notify("המשרה נוספה לרשימה");}
  async function logout(){const supabase=createSupabaseBrowserClient();if(supabase&&!demo)await supabase.auth.signOut();sessionStorage.removeItem("jh-demo");router.push("/login");}
- function selectTab(id:string){setTab(id);}\n function saveScanSettings(){localStorage.setItem("jh-scan-frequency",scanFrequency);localStorage.setItem("jh-scan-time",scanTime);localStorage.setItem("jh-scan-enabled",scanEnabled?"1":"0");notify("העדפות הסריקה נשמרו בדפדפן. סריקה אוטומטית עדיין לא מחוברת.");}\n function startScan(){notify("סריקה אוטומטית עדיין לא זמינה. אפשר לפתוח את מקורות החיפוש החיצוניים למטה.");}
+ function selectTab(id:string){setTab(id);}
+ function saveScanSettings(){localStorage.setItem("jh-scan-frequency",scanFrequency);localStorage.setItem("jh-scan-time",scanTime);localStorage.setItem("jh-scan-enabled",scanEnabled?"1":"0");notify("העדפות הסריקה נשמרו בדפדפן. סריקה אוטומטית עדיין לא מחוברת.");}
+ function startScan(){notify("סריקה אוטומטית עדיין לא זמינה. אפשר לפתוח את מקורות החיפוש החיצוניים למטה.");}
  const title=nav.find(n=>n[0]===tab)?.[1]||"סקירה כללית";
  return <div className="app-shell">
   <aside className="sidebar">
