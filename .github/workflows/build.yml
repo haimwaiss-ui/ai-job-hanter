@@ -26,10 +26,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
-      # This repository currently has no committed package-lock.json,
-      # so npm install is used instead of npm ci.
+      # No package-lock.json is committed yet; avoid setup-node's npm cache
+      # until a lockfile is added, and install with npm install.
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
