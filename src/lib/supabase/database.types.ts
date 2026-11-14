@@ -119,7 +119,7 @@ export interface Database {
           external_application_id: string | null; applied_at: Timestamp | null;
           last_status_sync_at: Timestamp | null; retry_count: number;
           last_error: string | null; manual_assist_required: boolean;
-          manual_assist_url: string | null; notes: string | null;
+          manual_assist_url: string | null; manual_assist_resume_storage_path: string | null; notes: string | null;
           created_at: Timestamp; updated_at: Timestamp;
         };
         Insert: {
@@ -131,7 +131,7 @@ export interface Database {
           applied_at?: Timestamp | null; last_status_sync_at?: Timestamp | null;
           retry_count?: number; last_error?: string | null;
           manual_assist_required?: boolean; manual_assist_url?: string | null;
-          notes?: string | null; created_at?: Timestamp; updated_at?: Timestamp;
+          manual_assist_resume_storage_path?: string | null; notes?: string | null; created_at?: Timestamp; updated_at?: Timestamp;
         };
         Update: Partial<Database["public"]["Tables"]["applications"]["Insert"]>;
         Relationships: [];
@@ -155,9 +155,56 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["execution_logs"]["Insert"]>;
         Relationships: [];
       };
+      worker_sessions: {
+        Row: {
+          user_id: UUID; token_vault_ref: UUID; revoked_at: Timestamp | null;
+          created_at: Timestamp; updated_at: Timestamp;
+        };
+        Insert: {
+          user_id: UUID; token_vault_ref: UUID; revoked_at?: Timestamp | null;
+          created_at?: Timestamp; updated_at?: Timestamp;
+        };
+        Update: Partial<Database["public"]["Tables"]["worker_sessions"]["Insert"]>;
+        Relationships: [];
+      };
+      worker_operations: {
+        Row: {
+          id: UUID; user_id: UUID;
+          queue_name: "scraper-queue" | "ai-processing-queue" | "submission-queue";
+          idempotency_key: string; operation_id: UUID;
+          status: "running" | "retrying" | "completed" | "failed" | "manual_assist";
+          attempt_count: number; lease_until: Timestamp | null;
+          last_error_code: string | null; last_error_message: string | null;
+          created_at: Timestamp; updated_at: Timestamp; completed_at: Timestamp | null;
+        };
+        Insert: {
+          id?: UUID; user_id: UUID;
+          queue_name: "scraper-queue" | "ai-processing-queue" | "submission-queue";
+          idempotency_key: string; operation_id: UUID;
+          status?: "running" | "retrying" | "completed" | "failed" | "manual_assist";
+          attempt_count?: number; lease_until?: Timestamp | null;
+          last_error_code?: string | null; last_error_message?: string | null;
+          created_at?: Timestamp; updated_at?: Timestamp; completed_at?: Timestamp | null;
+        };
+        Update: Partial<Database["public"]["Tables"]["worker_operations"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      worker_current_context: {
+        Args: Record<string, never>;
+        Returns: { user_id: UUID | null; worker_enabled: boolean }[];
+      };
+      claim_worker_operation: {
+        Args: {
+          p_queue_name: "scraper-queue" | "ai-processing-queue" | "submission-queue";
+          p_idempotency_key: string;
+          p_operation_id: UUID;
+        };
+        Returns: boolean;
+      };
+    };
     Enums: {
       employment_type: EmploymentType;
       application_status: ApplicationStatus;
