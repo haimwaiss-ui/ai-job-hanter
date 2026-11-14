@@ -10,6 +10,15 @@ export type SubmissionFailureClass =
   | "transient_network"
   | "unknown";
 
+export class PermanentSubmissionError extends Error {
+  readonly code = "SUBMISSION_VALIDATION_FAILED";
+
+  constructor() {
+    super("Submission cannot continue because required form data is invalid");
+    this.name = "PermanentSubmissionError";
+  }
+}
+
 export class ManualAssistRequiredError extends Error {
   readonly code: string;
 
@@ -186,6 +195,9 @@ export async function executeSubmissionWithFallback(
     ) {
       await markSubmissionManualAssist(supabase, input.userId, input.applicationId);
       throw new ManualAssistRequiredError(classification);
+    }
+    if (classification === "permanent_validation") {
+      throw new PermanentSubmissionError();
     }
     throw error;
   }
