@@ -4,6 +4,16 @@ import { createApplicationSchema } from "@/lib/validation/job-hunter";
 
 export const runtime = "nodejs";
 
+export async function GET() {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const db = supabase as any;
+  const { data, error } = await db.from("applications").select("id,job_id,status,match_score,notes,created_at,applied_at,jobs(title,company_name,location,application_url,source_url)").eq("user_id", user.id).order("created_at", { ascending: false });
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ applications: data ?? [] });
+}
+
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();
 
@@ -49,5 +59,6 @@ export async function POST(request: Request) {
     );
   }
 
+  await (supabase as any).from("user_activity_events").insert({user_id:user.id,event_type:"application_created",entity_type:"application",entity_id:data.id,payload:{job_id:data.job_id}});
   return NextResponse.json({ application: data }, { status: 201 });
 }
