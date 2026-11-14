@@ -14,6 +14,20 @@ export async function GET() {
   return NextResponse.json({ applications: data ?? [] });
 }
 
+export async function PATCH(request: Request) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const body = await request.json().catch(() => null);
+  const allowed = ["discovered","analyzing","matched","pending_approval","approved","generating_resume","ready_to_submit","submitting","submitted","interviewing","offer_received","rejected","withdrawn","manual_assist","failed"];
+  if (!body || typeof body.id !== "string" || !allowed.includes(body.status)) return NextResponse.json({ error: "Invalid application update" }, { status: 422 });
+  const db = supabase as any;
+  const { data, error } = await db.from("applications").update({ status: body.status, updated_at: new Date().toISOString() }).eq("id", body.id).eq("user_id", user.id).select("id,status,job_id").single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  await db.from("user_activity_events").insert({ user_id: user.id, event_type: "application_status_changed", entity_type: "application", entity_id: data.id, payload: { status: data.status } });
+  return NextResponse.json({ application: data });
+}
+
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();
 
