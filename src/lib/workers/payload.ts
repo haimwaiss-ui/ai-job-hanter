@@ -1,26 +1,29 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/supabase/database.types";
-import { workerJobSchema, type WorkerJobInput } from "@/lib/validation/job-hunter";
+import {
+  aiProcessingQueuePayloadSchema,
+  scraperQueuePayloadSchema,
+  submissionQueuePayloadSchema,
+  type AiProcessingQueuePayload,
+  type ScraperQueuePayload,
+  type SubmissionQueuePayload,
+} from "@/lib/queues/contracts";
+import type { WorkerQueueName } from "@/lib/queues/contracts";
 
-export function parseWorkerPayload(input: unknown): WorkerJobInput {
-  const result = workerJobSchema.safeParse(input);
-  if (!result.success) {
-    throw new Error(`Invalid worker payload: ${result.error.message}`);
-  }
-  return result.data;
-}
+export type ParsedWorkerPayload =
+  | ScraperQueuePayload
+  | AiProcessingQueuePayload
+  | SubmissionQueuePayload;
 
-/**
- * Call this before processing any job. Then use a user-scoped Supabase client
- * whose access token was resolved from tokenVaultRef. The authenticated user
- * must match payload.userId; RLS is still the final database enforcement.
- */
-export async function assertWorkerTenant(
-  supabase: SupabaseClient<Database>,
-  expectedUserId: string,
-) {
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user || data.user.id !== expectedUserId) {
-    throw new Error("Worker tenant identity mismatch");
+/** Zod validation is repeated at the worker boundary, even after API validation. */
+export function parseWorkerPayload(
+  queueName: WorkerQueueName,
+  input: unknown,
+): ParsedWorkerPayload {
+  switch (queueName) {
+    case "scraper-queue":
+      return scraperQueuePayloadSchema.parse(input);
+    case "ai-processing-queue":
+      return aiProcessingQueuePayloadSchema.parse(input);
+    case "submission-queue":
+      return submissionQueuePayloadSchema.parse(input);
   }
 }
