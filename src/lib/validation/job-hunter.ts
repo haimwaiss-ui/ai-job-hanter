@@ -35,16 +35,6 @@ export const createApplicationSchema = z.object({
   notes: z.string().trim().max(4000).nullable().optional(),
 }).strict();
 
-export const workerJobSchema = z.object({
-  jobId: uuid,
-  userId: uuid,
-  operationId: uuid,
-  kind: z.enum(["scrape", "prefilter", "match", "tailor_resume", "submit"]),
-  attempt: z.number().int().min(1).max(8),
-  tokenVaultRef: z.string().min(16).max(256),
-}).strict();
-
 export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
 export type ResumeMetadataInput = z.infer<typeof resumeMetadataSchema>;
 export type CreateApplicationInput = z.infer<typeof createApplicationSchema>;
-export type WorkerJobInput = z.infer<typeof workerJobSchema>;
