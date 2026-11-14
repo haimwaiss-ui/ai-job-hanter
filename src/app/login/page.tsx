@@ -32,7 +32,7 @@ export default function LoginPage() {
     setBusy(false);
     if (result.error) { setError(result.error.message); return; }
     if (mode === "signup" && !result.data.session) {
-      setError("ההרשמה הושלמה אך Supabase לא החזיר session. בדוק את תיבת הדואר ואת תיקיית הספאם, או לחץ על "שלח שוב אימות למייל". אם כבר אימתת את החשבון, עבור להתחברות ולא להרשמה.");
+      setError(`ההרשמה הושלמה אך Supabase לא החזיר session. בדוק את תיבת הדואר ואת תיקיית הספאם, או לחץ על "שלח שוב אימות למייל". אם כבר אימתת את החשבון, עבור להתחברות ולא להרשמה.`);
       return;
     }
     sessionStorage.removeItem("jh-demo");
@@ -90,7 +90,7 @@ export default function LoginPage() {
             <label>סיסמה<input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="לפחות 8 תווים" minLength={8} required dir="ltr"/></label>
             {error && <div className="form-error">{error}</div>}
             {notice && <div className="demo-note">{notice}</div>}
-            {mode === "login" && <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:13}}><button type="button" className="demo-link" onClick={resetPassword} disabled={busy}>שכחתי סיסמה</button><button type="button" className="demo-link" onClick={resendConfirmation} disabled={busy}>שלח שוב אימות למייל</button></div>
+            {mode === "login" && <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:13}}><button type="button" className="demo-link" onClick={resetPassword} disabled={busy}>שכחתי סיסמה</button><button type="button" className="demo-link" onClick={resendConfirmation} disabled={busy}>שלח שוב אימות למייל</button></div>}
             <button className="btn btn-primary btn-full" disabled={busy}>{busy ? "רק רגע..." : mode === "login" ? "התחברות" : "יצירת חשבון"} <ArrowLeft size={17}/></button>
           </form>
           {!configured && <div className="demo-note"><strong>מצב Preview</strong><br/>החיבור ל-Supabase יופעל לאחר הגדרת מפתחות הפרויקט.</div>}
