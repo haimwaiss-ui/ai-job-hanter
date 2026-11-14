@@ -120,6 +120,14 @@ revoke insert, update, delete on public.resumes from authenticated;
 revoke insert, update, delete on public.applications from authenticated;
 revoke insert, update, delete on public.execution_logs from authenticated;
 revoke insert, update, delete on public.jobs from authenticated;
+grant insert (
+  user_id, external_id, source, source_url, company_name, company_website,
+  title, description, location, country_code, employment_type, remote,
+  salary_min, salary_max, salary_currency, required_skills, preferred_skills,
+  experience_level, application_url, published_at, expires_at,
+  pre_filter_score, pre_filter_passed, pre_filter_reasons, raw_metadata,
+  is_active, scraped_at
+) on public.jobs to authenticated;
 
 grant update (
   full_name, phone, location, linkedin_url, portfolio_url, headline,
