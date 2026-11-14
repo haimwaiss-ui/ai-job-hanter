@@ -3,7 +3,7 @@ import {
   PutSecretValueCommand,
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type IORedis from "ioredis";
@@ -100,7 +100,7 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
     const lockKey = "worker:vault-refresh:" + createHash("sha256")
       .update(userId + ":" + tokenVaultRef)
       .digest("hex");
-    const lockToken = cryptoRandomToken();
+    const lockToken = randomUUID();
     const lockDeadline = Date.now() + 12_000;
     let acquired = false;
 
@@ -153,9 +153,6 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
   }
 }
 
-function cryptoRandomToken(): string {
-  return require("node:crypto").randomUUID() as string;
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
