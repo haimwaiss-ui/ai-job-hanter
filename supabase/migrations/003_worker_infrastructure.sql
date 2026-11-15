@@ -35,6 +35,12 @@ create policy worker_sessions_delete_own
   on public.worker_sessions for delete to authenticated
   using (user_id = (select auth.uid()));
 
+-- Supabase Auth's hook role needs a read policy because RLS is enabled.
+drop policy if exists worker_sessions_select_auth_hook on public.worker_sessions;
+create policy worker_sessions_select_auth_hook
+  on public.worker_sessions for select to supabase_auth_admin
+  using (true);
+
 grant select, insert, update, delete on public.worker_sessions to authenticated;
 grant usage on schema public to supabase_auth_admin;
 grant select on public.worker_sessions to supabase_auth_admin;
@@ -69,6 +75,12 @@ create policy worker_operations_select_worker
   using (
     user_id = (select auth.uid())
     and coalesce((select auth.jwt() ->> 'worker')::boolean, false)
+    and exists (
+      select 1 from public.worker_sessions ws
+      where ws.user_id = (select auth.uid())
+        and ws.revoked_at is null
+        and ws.token_vault_ref::text = (select auth.jwt() ->> 'worker_vault_ref')
+    )
   );
 
 drop policy if exists worker_operations_insert_worker on public.worker_operations;
@@ -77,6 +89,12 @@ create policy worker_operations_insert_worker
   with check (
     user_id = (select auth.uid())
     and coalesce((select auth.jwt() ->> 'worker')::boolean, false)
+    and exists (
+      select 1 from public.worker_sessions ws
+      where ws.user_id = (select auth.uid())
+        and ws.revoked_at is null
+        and ws.token_vault_ref::text = (select auth.jwt() ->> 'worker_vault_ref')
+    )
   );
 
 drop policy if exists worker_operations_update_worker on public.worker_operations;
@@ -85,10 +103,22 @@ create policy worker_operations_update_worker
   using (
     user_id = (select auth.uid())
     and coalesce((select auth.jwt() ->> 'worker')::boolean, false)
+    and exists (
+      select 1 from public.worker_sessions ws
+      where ws.user_id = (select auth.uid())
+        and ws.revoked_at is null
+        and ws.token_vault_ref::text = (select auth.jwt() ->> 'worker_vault_ref')
+    )
   )
   with check (
     user_id = (select auth.uid())
     and coalesce((select auth.jwt() ->> 'worker')::boolean, false)
+    and exists (
+      select 1 from public.worker_sessions ws
+      where ws.user_id = (select auth.uid())
+        and ws.revoked_at is null
+        and ws.token_vault_ref::text = (select auth.jwt() ->> 'worker_vault_ref')
+    )
   );
 
 grant select, insert on public.worker_operations to authenticated;
@@ -97,9 +127,8 @@ grant update (
   last_error_code, last_error_message, updated_at, completed_at
 ) on public.worker_operations to authenticated;
 
--- Supabase Auth calls this hook when issuing or refreshing a JWT.
--- The worker claim is derived from a tenant-owned registration row, never
--- from user-editable user_metadata or queue data.
+-- The worker claim is derived from a server-side registration row. It is bound
+-- to the opaque vault reference so rotating/revoking a session invalidates old JWTs.
 create or replace function public.custom_access_token_hook(event jsonb)
 returns jsonb
 language plpgsql
@@ -109,17 +138,22 @@ set search_path = ''
 as $$
 declare
   claims jsonb := coalesce(event -> 'claims', '{}'::jsonb);
-  event_user_id uuid := nullif(event -> 'user' ->> 'id', '')::uuid;
+  event_user_id uuid := nullif(event ->> 'user_id', '')::uuid;
+  vault_ref uuid;
 begin
-  if event_user_id is not null and exists (
-    select 1
+  if event_user_id is not null then
+    select ws.token_vault_ref
+      into vault_ref
     from public.worker_sessions as ws
     where ws.user_id = event_user_id
-      and ws.revoked_at is null
-  ) then
+      and ws.revoked_at is null;
+  end if;
+
+  if vault_ref is not null then
     claims := jsonb_set(claims, '{worker}', 'true'::jsonb, true);
+    claims := jsonb_set(claims, '{worker_vault_ref}', to_jsonb(vault_ref::text), true);
   else
-    claims := claims - 'worker';
+    claims := claims - 'worker' - 'worker_vault_ref';
   end if;
 
   return jsonb_set(event, '{claims}', claims, true);
@@ -129,9 +163,9 @@ $$;
 revoke all on function public.custom_access_token_hook(jsonb) from public, anon, authenticated;
 grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
 
--- Worker-side proof of the identity and claim actually seen by Postgres.
+-- Postgres verifies auth.uid(), the worker claim and the currently registered vault ref.
 create or replace function public.worker_current_context()
-returns table(user_id uuid, worker_enabled boolean)
+returns table(user_id uuid, worker_enabled boolean, token_vault_ref uuid)
 language sql
 stable
 security invoker
@@ -139,29 +173,54 @@ set search_path = ''
 as $$
   select
     auth.uid(),
-    coalesce((auth.jwt() ->> 'worker')::boolean, false);
+    coalesce((auth.jwt() ->> 'worker')::boolean, false)
+      and exists (
+        select 1
+        from public.worker_sessions as ws
+        where ws.user_id = auth.uid()
+          and ws.revoked_at is null
+          and ws.token_vault_ref::text = auth.jwt() ->> 'worker_vault_ref'
+      ),
+    (
+      select ws.token_vault_ref
+      from public.worker_sessions as ws
+      where ws.user_id = auth.uid()
+        and ws.revoked_at is null
+      limit 1
+    );
 $$;
 grant execute on function public.worker_current_context() to authenticated;
 
--- Atomic tenant-scoped claim. A retry of the same BullMQ operation can reclaim
--- its own lease; a different duplicate cannot run while the lease is active.
-create or replace function public.claim_worker_operation(
+-- Atomic tenant-scoped idempotency claim. Active leases return "busy", terminal
+-- operations return "duplicate", and only retryable/expired operations are reclaimed.
+drop function if exists public.claim_worker_operation(text, text, uuid);
+create function public.claim_worker_operation(
   p_queue_name text,
   p_idempotency_key text,
   p_operation_id uuid
 )
-returns boolean
+returns text
 language plpgsql
 security invoker
 set search_path = ''
 as $$
 declare
   current_user_id uuid := auth.uid();
+  current_status text;
+  current_operation_id uuid;
+  current_lease_until timestamptz;
   changed_rows integer := 0;
 begin
   if current_user_id is null
-    or coalesce((auth.jwt() ->> 'worker')::boolean, false) is not true then
-    raise exception 'Worker JWT required' using errcode = '42501';
+    or coalesce((auth.jwt() ->> 'worker')::boolean, false) is not true
+    or not exists (
+      select 1
+      from public.worker_sessions as ws
+      where ws.user_id = current_user_id
+        and ws.revoked_at is null
+        and ws.token_vault_ref::text = auth.jwt() ->> 'worker_vault_ref'
+    ) then
+    raise exception 'Active worker JWT required' using errcode = '42501';
   end if;
 
   if p_queue_name not in ('scraper-queue', 'ai-processing-queue', 'submission-queue')
@@ -181,12 +240,26 @@ begin
   on conflict (user_id, queue_name, idempotency_key) do nothing;
 
   if found then
-    return true;
+    return 'claimed';
+  end if;
+
+  select wo.status, wo.operation_id, wo.lease_until
+    into current_status, current_operation_id, current_lease_until
+  from public.worker_operations as wo
+  where wo.user_id = current_user_id
+    and wo.queue_name = p_queue_name
+    and wo.idempotency_key = p_idempotency_key;
+
+  if not found or current_operation_id <> p_operation_id then
+    return 'duplicate';
+  end if;
+
+  if current_status in ('completed', 'failed', 'manual_assist') then
+    return 'duplicate';
   end if;
 
   update public.worker_operations
   set
-    operation_id = p_operation_id,
     status = 'running',
     attempt_count = attempt_count + 1,
     lease_until = now() + interval '10 minutes',
@@ -196,30 +269,74 @@ begin
   where user_id = current_user_id
     and queue_name = p_queue_name
     and idempotency_key = p_idempotency_key
-    and status not in ('completed', 'manual_assist')
+    and operation_id = p_operation_id
     and (
-      operation_id = p_operation_id
-      or status <> 'running'
-      or lease_until < now()
+      status = 'retrying'
+      or (status = 'running' and (lease_until is null or lease_until < now()))
     );
 
   get diagnostics changed_rows = row_count;
-  return changed_rows = 1;
+  if changed_rows = 1 then
+    return 'claimed';
+  end if;
+
+  return 'busy';
 end;
 $$;
 grant execute on function public.claim_worker_operation(text, text, uuid) to authenticated;
 
--- Application writes are limited to the authenticated tenant and worker claim.
+-- Worker-only write policies are additionally bound to the active vault ref,
+-- so revocation takes effect immediately instead of waiting for JWT expiry.
+drop policy if exists jobs_insert_worker on public.jobs;
+create policy jobs_insert_worker
+  on public.jobs for insert to authenticated
+  with check (
+    user_id = (select auth.uid())
+    and coalesce((select auth.jwt() ->> 'worker')::boolean, false)
+    and exists (
+      select 1 from public.worker_sessions ws
+      where ws.user_id = (select auth.uid())
+        and ws.revoked_at is null
+        and ws.token_vault_ref::text = (select auth.jwt() ->> 'worker_vault_ref')
+    )
+  );
+
+drop policy if exists execution_logs_insert_worker on public.execution_logs;
+create policy execution_logs_insert_worker
+  on public.execution_logs for insert to authenticated
+  with check (
+    user_id = (select auth.uid())
+    and coalesce((select auth.jwt() ->> 'worker')::boolean, false)
+    and exists (
+      select 1 from public.worker_sessions ws
+      where ws.user_id = (select auth.uid())
+        and ws.revoked_at is null
+        and ws.token_vault_ref::text = (select auth.jwt() ->> 'worker_vault_ref')
+    )
+  );
+
 drop policy if exists applications_update_worker on public.applications;
 create policy applications_update_worker
   on public.applications for update to authenticated
   using (
     user_id = (select auth.uid())
     and coalesce((select auth.jwt() ->> 'worker')::boolean, false)
+    and exists (
+      select 1 from public.worker_sessions ws
+      where ws.user_id = (select auth.uid())
+        and ws.revoked_at is null
+        and ws.token_vault_ref::text = (select auth.jwt() ->> 'worker_vault_ref')
+    )
   )
   with check (
     user_id = (select auth.uid())
     and coalesce((select auth.jwt() ->> 'worker')::boolean, false)
+    and exists (
+      select 1 from public.worker_sessions ws
+      where ws.user_id = (select auth.uid())
+        and ws.revoked_at is null
+        and ws.token_vault_ref::text = (select auth.jwt() ->> 'worker_vault_ref')
+    )
   );
 
 grant update (
