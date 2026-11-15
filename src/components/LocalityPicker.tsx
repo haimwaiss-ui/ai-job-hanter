@@ -12,7 +12,7 @@ export default function LocalityPicker({ value, onChange, placeholder = "חפש 
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(Boolean(value));
 
-  useEffect(() => { setQuery(value); setSelected(Boolean(value)); }, [value]);
+  useEffect(() => { if (value) { setQuery(value); setSelected(true); } else { setSelected(false); } }, [value]);
 
   useEffect(() => {
     if (selected || query.trim().length < 2) { setResults([]); return; }
