@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   const list = await listResponse.json();
   const ids: string[] = (list.messages ?? []).map((x: { id: string }) => x.id);
   const { data: profile } = await supabase.from("profiles").select("location").eq("user_id", user.id).maybeSingle();
-  const matches: Array<{ user_id: string; source: string; source_url: string; application_url: string; company_name: string; title: string; description: string; location: string | null; raw_metadata: Record<string, unknown> }> = [];
+  const matches: Array<{ user_id: string; source: string; source_url: string; application_url: string; company_name: string; title: string; description: string; location: string | null; raw_metadata: { gmail_message_id: string; imported_from_email: boolean } }> = [];
   for (const id of ids.slice(0, 30)) {
     const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/" + encodeURIComponent(id) + "?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date", { headers: { Authorization: "Bearer " + accessToken }, cache: "no-store" });
     if (!response.ok) continue;
