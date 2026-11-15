@@ -733,7 +733,41 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      employer_applicant_profiles: {
+        Row: {
+          application_id: string | null
+          candidate_location: string | null
+          candidate_user_id: string | null
+          cover_letter: string | null
+          created_at: string | null
+          employer_job_id: string | null
+          employer_user_id: string | null
+          full_name: string | null
+          headline: string | null
+          job_department: string | null
+          job_location: string | null
+          job_title: string | null
+          skills: string[] | null
+          status: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employer_applications_candidate_profile_fk"
+            columns: ["candidate_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "employer_applications_employer_job_id_fkey"
+            columns: ["employer_job_id"]
+            isOneToOne: false
+            referencedRelation: "employer_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       claim_worker_operation: {
