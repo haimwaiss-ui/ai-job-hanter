@@ -1,78 +1,121 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createApplicationSchema } from "@/lib/validation/job-hunter";
+import {
+  createApplicationForTenant,
+  TenantServiceError,
+  updateApplicationStatusForTenant,
+} from "@/lib/services/applications";
+import {
+  contentLengthExceeds,
+  hasJsonContentType,
+  isSameOriginMutation,
+  MAX_JSON_BODY_BYTES,
+} from "@/lib/http/request-guards";
 
 export const runtime = "nodejs";
 
+function serviceErrorResponse(error: unknown) {
+  if (error instanceof TenantServiceError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
+  return NextResponse.json({ error: "Application operation failed" }, { status: 500 });
+}
+
 export async function GET() {
   const supabase = await createSupabaseServerClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const db = supabase as any;
-  const { data, error } = await db.from("applications").select("id,job_id,status,match_score,notes,created_at,applied_at,jobs(title,company_name,location,application_url,source_url)").eq("user_id", user.id).order("created_at", { ascending: false });
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ applications: data ?? [] });
-}
-
-export async function PATCH(request: Request) {
-  const supabase = await createSupabaseServerClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const body = await request.json().catch(() => null);
-  const allowed = ["discovered","analyzing","matched","pending_approval","approved","generating_resume","ready_to_submit","submitting","submitted","interviewing","offer_received","rejected","withdrawn","manual_assist","failed"];
-  if (!body || typeof body.id !== "string" || !allowed.includes(body.status)) return NextResponse.json({ error: "Invalid application update" }, { status: 422 });
-  const db = supabase as any;
-  const { data, error } = await db.from("applications").update({ status: body.status, updated_at: new Date().toISOString() }).eq("id", body.id).eq("user_id", user.id).select("id,status,job_id").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  await db.from("user_activity_events").insert({ user_id: user.id, event_type: "application_status_changed", entity_type: "application", entity_id: data.id, payload: { status: data.status } });
-  return NextResponse.json({ application: data });
-}
-
-export async function POST(request: Request) {
-  const supabase = await createSupabaseServerClient();
-
-  // getUser() validates the session with Supabase Auth; do not trust user IDs
-  // supplied in JSON, headers, or unsigned cookies.
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  const { data, error } = await supabase
+    .from("applications")
+    .select("id,job_id,status,match_score,notes,created_at,applied_at,jobs(title,company_name,location,application_url,source_url)")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return NextResponse.json({ error: "Unable to load applications" }, { status: 500 });
+  }
+  return NextResponse.json({ applications: data ?? [] });
+}
+
+export async function PATCH(request: Request) {
+  if (!isSameOriginMutation(request)) {
+    return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  }
+  if (!hasJsonContentType(request)) {
+    return NextResponse.json({ error: "Expected application/json" }, { status: 415 });
+  }
+  if (contentLengthExceeds(request, MAX_JSON_BODY_BYTES)) {
+    return NextResponse.json({ error: "Request body too large" }, { status: 413 });
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body: unknown = await request.json().catch(() => null);
+  if (body === null) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const parsed = createApplicationSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Validation failed", details: parsed.error.flatten() },
-      { status: 422 }
-    );
-  }
-
-  // user_id comes exclusively from the verified Auth identity.
-  // The composite FKs and RLS independently enforce tenant ownership.
-  const { data, error } = await supabase
-    .from("applications")
-    .insert({
+  try {
+    const application = await updateApplicationStatusForTenant(supabase, user.id, body);
+    const { error: eventError } = await supabase.from("user_activity_events").insert({
       user_id: user.id,
-      job_id: parsed.data.job_id,
-      resume_id: parsed.data.resume_id ?? null,
-      notes: parsed.data.notes ?? null,
-    })
-    .select("id, job_id, resume_id, status, created_at")
-    .single();
+      event_type: "application_status_changed",
+      entity_type: "application",
+      entity_id: application.id,
+      payload: { status: application.status },
+    });
+    if (eventError) {
+      console.warn("application_status_event_write_failed");
+    }
+    return NextResponse.json({ application });
+  } catch (error) {
+    return serviceErrorResponse(error);
+  }
+}
 
-  if (error) {
-    return NextResponse.json(
-      { error: "Unable to create application" },
-      { status: error.code === "23505" ? 409 : 400 }
-    );
+export async function POST(request: Request) {
+  if (!isSameOriginMutation(request)) {
+    return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  }
+  if (!hasJsonContentType(request)) {
+    return NextResponse.json({ error: "Expected application/json" }, { status: 415 });
+  }
+  if (contentLengthExceeds(request, MAX_JSON_BODY_BYTES)) {
+    return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   }
 
-  await (supabase as any).from("user_activity_events").insert({user_id:user.id,event_type:"application_created",entity_type:"application",entity_id:data.id,payload:{job_id:data.job_id}});
-  return NextResponse.json({ application: data }, { status: 201 });
+  const supabase = await createSupabaseServerClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body: unknown = await request.json().catch(() => null);
+  if (body === null) {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  try {
+    const application = await createApplicationForTenant(supabase, user.id, body);
+    const { error: eventError } = await supabase.from("user_activity_events").insert({
+      user_id: user.id,
+      event_type: "application_created",
+      entity_type: "application",
+      entity_id: application.id,
+      payload: { job_id: application.job_id },
+    });
+    if (eventError) {
+      console.warn("application_created_event_write_failed");
+    }
+    return NextResponse.json({ application }, { status: 201 });
+  } catch (error) {
+    return serviceErrorResponse(error);
+  }
 }

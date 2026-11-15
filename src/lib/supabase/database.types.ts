@@ -1,216 +1,818 @@
-/**
- * Generate authoritative types after applying all migrations:
- * npx supabase gen types typescript --project-id "$PROJECT_REF" --schema public > src/lib/supabase/database.types.ts
- *
- * This is a starter contract; regenerate from the actual Supabase schema.
- */
 export type Json =
   | string
   | number
   | boolean
   | null
   | { [key: string]: Json | undefined }
-  | Json[];
+  | Json[]
 
-export type EmploymentType =
-  | "full_time" | "part_time" | "contract" | "freelance"
-  | "internship" | "temporary" | "other";
-
-export type ApplicationStatus =
-  | "discovered" | "analyzing" | "matched" | "pending_approval"
-  | "approved" | "generating_resume" | "ready_to_submit"
-  | "submitting" | "submitted" | "interviewing" | "offer_received"
-  | "rejected" | "withdrawn" | "manual_assist" | "failed";
-
-export type ExecutionType =
-  | "scraping" | "pre_filtering" | "ai_matching" | "resume_generation"
-  | "pdf_generation" | "email_submission" | "form_submission"
-  | "manual_assist" | "status_sync" | "system";
-
-export type ExecutionStatus =
-  | "pending" | "running" | "success" | "failed" | "fallback" | "retrying";
-
-type Timestamp = string;
-type UUID = string;
-
-export interface Database {
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.18"
+  }
   public: {
     Tables: {
-      profiles: {
-        Row: {
-          user_id: UUID; full_name: string | null; email: string | null;
-          phone: string | null; location: string | null; linkedin_url: string | null;
-          portfolio_url: string | null; headline: string | null;
-          professional_summary: string | null; skills: string[];
-          preferred_locations: string[]; preferred_employment_types: EmploymentType[];
-          min_salary: number | null; salary_currency: string | null;
-          remote_preference: boolean | null; onboarding_completed: boolean;
-          created_at: Timestamp; updated_at: Timestamp;
-        };
-        Insert: {
-          user_id: UUID; full_name?: string | null; email?: string | null;
-          phone?: string | null; location?: string | null; linkedin_url?: string | null;
-          portfolio_url?: string | null; headline?: string | null;
-          professional_summary?: string | null; skills?: string[];
-          preferred_locations?: string[]; preferred_employment_types?: EmploymentType[];
-          min_salary?: number | null; salary_currency?: string | null;
-          remote_preference?: boolean | null; onboarding_completed?: boolean;
-          created_at?: Timestamp; updated_at?: Timestamp;
-        };
-        Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;
-        Relationships: [];
-      };
-      resumes: {
-        Row: {
-          id: UUID; user_id: UUID; name: string; storage_bucket: string;
-          storage_path: string; original_filename: string | null; mime_type: string;
-          file_size_bytes: number | null; parsed_text: string | null; parsed_data: Json;
-          skills: string[]; is_default: boolean; is_ai_generated: boolean;
-          source_resume_id: UUID | null; created_at: Timestamp; updated_at: Timestamp;
-        };
-        Insert: {
-          id?: UUID; user_id: UUID; name: string; storage_bucket?: string;
-          storage_path: string; original_filename?: string | null; mime_type?: string;
-          file_size_bytes?: number | null; parsed_text?: string | null; parsed_data?: Json;
-          skills?: string[]; is_default?: boolean; is_ai_generated?: boolean;
-          source_resume_id?: UUID | null; created_at?: Timestamp; updated_at?: Timestamp;
-        };
-        Update: Partial<Database["public"]["Tables"]["resumes"]["Insert"]>;
-        Relationships: [];
-      };
-      jobs: {
-        Row: {
-          id: UUID; user_id: UUID; external_id: string | null; source: string;
-          source_url: string; company_name: string; company_website: string | null;
-          title: string; description: string | null; location: string | null;
-          country_code: string | null; employment_type: EmploymentType | null;
-          remote: boolean; salary_min: number | null; salary_max: number | null;
-          salary_currency: string | null; required_skills: string[];
-          preferred_skills: string[]; experience_level: string | null;
-          application_url: string | null; published_at: Timestamp | null;
-          expires_at: Timestamp | null; pre_filter_score: number | null;
-          pre_filter_passed: boolean; pre_filter_reasons: Json;
-          raw_metadata: Json; is_active: boolean; scraped_at: Timestamp;
-          created_at: Timestamp; updated_at: Timestamp;
-        };
-        Insert: {
-          id?: UUID; user_id: UUID; external_id?: string | null; source: string;
-          source_url: string; company_name: string; company_website?: string | null;
-          title: string; description?: string | null; location?: string | null;
-          country_code?: string | null; employment_type?: EmploymentType | null;
-          remote?: boolean; salary_min?: number | null; salary_max?: number | null;
-          salary_currency?: string | null; required_skills?: string[];
-          preferred_skills?: string[]; experience_level?: string | null;
-          application_url?: string | null; published_at?: Timestamp | null;
-          expires_at?: Timestamp | null; pre_filter_score?: number | null;
-          pre_filter_passed?: boolean; pre_filter_reasons?: Json;
-          raw_metadata?: Json; is_active?: boolean; scraped_at?: Timestamp;
-          created_at?: Timestamp; updated_at?: Timestamp;
-        };
-        Update: Partial<Database["public"]["Tables"]["jobs"]["Insert"]>;
-        Relationships: [];
-      };
       applications: {
         Row: {
-          id: UUID; user_id: UUID; job_id: UUID; resume_id: UUID | null;
-          status: ApplicationStatus; match_score: number | null;
-          match_reasons: Json; ai_analysis: Json; tailored_resume_storage_path: string | null;
-          cover_letter: string | null; submission_method: string | null;
-          external_application_id: string | null; applied_at: Timestamp | null;
-          last_status_sync_at: Timestamp | null; retry_count: number;
-          last_error: string | null; manual_assist_required: boolean;
-          manual_assist_url: string | null; manual_assist_resume_storage_path: string | null; notes: string | null;
-          created_at: Timestamp; updated_at: Timestamp;
-        };
+          ai_analysis: Json
+          applied_at: string | null
+          cover_letter: string | null
+          created_at: string
+          external_application_id: string | null
+          id: string
+          job_id: string
+          last_error: string | null
+          last_status_sync_at: string | null
+          manual_assist_required: boolean
+          manual_assist_resume_storage_path: string | null
+          manual_assist_url: string | null
+          match_reasons: Json
+          match_score: number | null
+          notes: string | null
+          resume_id: string | null
+          retry_count: number
+          status: Database["public"]["Enums"]["application_status"]
+          submission_method: string | null
+          tailored_resume_storage_path: string | null
+          updated_at: string
+          user_id: string
+        }
         Insert: {
-          id?: UUID; user_id: UUID; job_id: UUID; resume_id?: UUID | null;
-          status?: ApplicationStatus; match_score?: number | null;
-          match_reasons?: Json; ai_analysis?: Json;
-          tailored_resume_storage_path?: string | null; cover_letter?: string | null;
-          submission_method?: string | null; external_application_id?: string | null;
-          applied_at?: Timestamp | null; last_status_sync_at?: Timestamp | null;
-          retry_count?: number; last_error?: string | null;
-          manual_assist_required?: boolean; manual_assist_url?: string | null;
-          manual_assist_resume_storage_path?: string | null; notes?: string | null; created_at?: Timestamp; updated_at?: Timestamp;
-        };
-        Update: Partial<Database["public"]["Tables"]["applications"]["Insert"]>;
-        Relationships: [];
-      };
+          ai_analysis?: Json
+          applied_at?: string | null
+          cover_letter?: string | null
+          created_at?: string
+          external_application_id?: string | null
+          id?: string
+          job_id: string
+          last_error?: string | null
+          last_status_sync_at?: string | null
+          manual_assist_required?: boolean
+          manual_assist_resume_storage_path?: string | null
+          manual_assist_url?: string | null
+          match_reasons?: Json
+          match_score?: number | null
+          notes?: string | null
+          resume_id?: string | null
+          retry_count?: number
+          status?: Database["public"]["Enums"]["application_status"]
+          submission_method?: string | null
+          tailored_resume_storage_path?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ai_analysis?: Json
+          applied_at?: string | null
+          cover_letter?: string | null
+          created_at?: string
+          external_application_id?: string | null
+          id?: string
+          job_id?: string
+          last_error?: string | null
+          last_status_sync_at?: string | null
+          manual_assist_required?: boolean
+          manual_assist_resume_storage_path?: string | null
+          manual_assist_url?: string | null
+          match_reasons?: Json
+          match_score?: number | null
+          notes?: string | null
+          resume_id?: string | null
+          retry_count?: number
+          status?: Database["public"]["Enums"]["application_status"]
+          submission_method?: string | null
+          tailored_resume_storage_path?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "applications_job_fk"
+            columns: ["user_id", "job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "applications_resume_fk"
+            columns: ["user_id", "resume_id"]
+            isOneToOne: false
+            referencedRelation: "resumes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       execution_logs: {
         Row: {
-          id: UUID; user_id: UUID; application_id: UUID | null; job_id: UUID | null;
-          execution_type: ExecutionType; status: ExecutionStatus;
-          service_name: string | null; operation: string | null; attempt_number: number;
-          duration_ms: number | null; error_code: string | null; error_message: string | null;
-          fallback_reason: string | null; metadata: Json; created_at: Timestamp;
-        };
+          application_id: string | null
+          attempt_number: number
+          created_at: string
+          duration_ms: number | null
+          error_code: string | null
+          error_message: string | null
+          execution_type: Database["public"]["Enums"]["execution_type"]
+          fallback_reason: string | null
+          id: string
+          job_id: string | null
+          metadata: Json
+          operation: string | null
+          service_name: string | null
+          status: Database["public"]["Enums"]["execution_status"]
+          user_id: string
+        }
         Insert: {
-          id?: UUID; user_id: UUID; application_id?: UUID | null; job_id?: UUID | null;
-          execution_type: ExecutionType; status?: ExecutionStatus;
-          service_name?: string | null; operation?: string | null; attempt_number?: number;
-          duration_ms?: number | null; error_code?: string | null;
-          error_message?: string | null; fallback_reason?: string | null;
-          metadata?: Json; created_at?: Timestamp;
-        };
-        Update: Partial<Database["public"]["Tables"]["execution_logs"]["Insert"]>;
-        Relationships: [];
-      };
-      worker_sessions: {
+          application_id?: string | null
+          attempt_number?: number
+          created_at?: string
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          execution_type: Database["public"]["Enums"]["execution_type"]
+          fallback_reason?: string | null
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          operation?: string | null
+          service_name?: string | null
+          status?: Database["public"]["Enums"]["execution_status"]
+          user_id: string
+        }
+        Update: {
+          application_id?: string | null
+          attempt_number?: number
+          created_at?: string
+          duration_ms?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          execution_type?: Database["public"]["Enums"]["execution_type"]
+          fallback_reason?: string | null
+          id?: string
+          job_id?: string | null
+          metadata?: Json
+          operation?: string | null
+          service_name?: string | null
+          status?: Database["public"]["Enums"]["execution_status"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "execution_logs_application_fk"
+            columns: ["user_id", "application_id"]
+            isOneToOne: false
+            referencedRelation: "applications"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "execution_logs_job_fk"
+            columns: ["user_id", "job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      jobs: {
         Row: {
-          user_id: UUID; token_vault_ref: UUID; revoked_at: Timestamp | null;
-          created_at: Timestamp; updated_at: Timestamp;
-        };
+          application_url: string | null
+          company_name: string
+          company_website: string | null
+          country_code: string | null
+          created_at: string
+          description: string | null
+          employment_type: Database["public"]["Enums"]["employment_type"] | null
+          experience_level: string | null
+          expires_at: string | null
+          external_id: string | null
+          id: string
+          is_active: boolean
+          location: string | null
+          pre_filter_passed: boolean
+          pre_filter_reasons: Json
+          pre_filter_score: number | null
+          preferred_skills: string[]
+          published_at: string | null
+          raw_metadata: Json
+          remote: boolean
+          required_skills: string[]
+          salary_currency: string | null
+          salary_max: number | null
+          salary_min: number | null
+          scraped_at: string
+          source: string
+          source_url: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
         Insert: {
-          user_id: UUID; token_vault_ref: UUID; revoked_at?: Timestamp | null;
-          created_at?: Timestamp; updated_at?: Timestamp;
-        };
-        Update: Partial<Database["public"]["Tables"]["worker_sessions"]["Insert"]>;
-        Relationships: [];
-      };
+          application_url?: string | null
+          company_name: string
+          company_website?: string | null
+          country_code?: string | null
+          created_at?: string
+          description?: string | null
+          employment_type?:
+            | Database["public"]["Enums"]["employment_type"]
+            | null
+          experience_level?: string | null
+          expires_at?: string | null
+          external_id?: string | null
+          id?: string
+          is_active?: boolean
+          location?: string | null
+          pre_filter_passed?: boolean
+          pre_filter_reasons?: Json
+          pre_filter_score?: number | null
+          preferred_skills?: string[]
+          published_at?: string | null
+          raw_metadata?: Json
+          remote?: boolean
+          required_skills?: string[]
+          salary_currency?: string | null
+          salary_max?: number | null
+          salary_min?: number | null
+          scraped_at?: string
+          source?: string
+          source_url?: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          application_url?: string | null
+          company_name?: string
+          company_website?: string | null
+          country_code?: string | null
+          created_at?: string
+          description?: string | null
+          employment_type?:
+            | Database["public"]["Enums"]["employment_type"]
+            | null
+          experience_level?: string | null
+          expires_at?: string | null
+          external_id?: string | null
+          id?: string
+          is_active?: boolean
+          location?: string | null
+          pre_filter_passed?: boolean
+          pre_filter_reasons?: Json
+          pre_filter_score?: number | null
+          preferred_skills?: string[]
+          published_at?: string | null
+          raw_metadata?: Json
+          remote?: boolean
+          required_skills?: string[]
+          salary_currency?: string | null
+          salary_max?: number | null
+          salary_min?: number | null
+          scraped_at?: string
+          source?: string
+          source_url?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          full_name: string | null
+          headline: string | null
+          linkedin_url: string | null
+          location: string | null
+          min_salary: number | null
+          onboarding_completed: boolean
+          phone: string | null
+          portfolio_url: string | null
+          preferred_employment_types: Database["public"]["Enums"]["employment_type"][]
+          preferred_locations: string[]
+          professional_summary: string | null
+          remote_preference: boolean | null
+          salary_currency: string | null
+          skills: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          headline?: string | null
+          linkedin_url?: string | null
+          location?: string | null
+          min_salary?: number | null
+          onboarding_completed?: boolean
+          phone?: string | null
+          portfolio_url?: string | null
+          preferred_employment_types?: Database["public"]["Enums"]["employment_type"][]
+          preferred_locations?: string[]
+          professional_summary?: string | null
+          remote_preference?: boolean | null
+          salary_currency?: string | null
+          skills?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          headline?: string | null
+          linkedin_url?: string | null
+          location?: string | null
+          min_salary?: number | null
+          onboarding_completed?: boolean
+          phone?: string | null
+          portfolio_url?: string | null
+          preferred_employment_types?: Database["public"]["Enums"]["employment_type"][]
+          preferred_locations?: string[]
+          professional_summary?: string | null
+          remote_preference?: boolean | null
+          salary_currency?: string | null
+          skills?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      resumes: {
+        Row: {
+          created_at: string
+          file_size_bytes: number | null
+          id: string
+          is_ai_generated: boolean
+          is_default: boolean
+          mime_type: string
+          name: string
+          original_filename: string | null
+          parsed_data: Json
+          parsed_text: string | null
+          skills: string[]
+          source_resume_id: string | null
+          storage_bucket: string
+          storage_path: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_size_bytes?: number | null
+          id?: string
+          is_ai_generated?: boolean
+          is_default?: boolean
+          mime_type?: string
+          name: string
+          original_filename?: string | null
+          parsed_data?: Json
+          parsed_text?: string | null
+          skills?: string[]
+          source_resume_id?: string | null
+          storage_bucket?: string
+          storage_path: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          file_size_bytes?: number | null
+          id?: string
+          is_ai_generated?: boolean
+          is_default?: boolean
+          mime_type?: string
+          name?: string
+          original_filename?: string | null
+          parsed_data?: Json
+          parsed_text?: string | null
+          skills?: string[]
+          source_resume_id?: string | null
+          storage_bucket?: string
+          storage_path?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "resumes_source_fk"
+            columns: ["user_id", "source_resume_id"]
+            isOneToOne: false
+            referencedRelation: "resumes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      user_activity_events: {
+        Row: {
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          event_type: string
+          id: string
+          payload: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          event_type: string
+          id?: string
+          payload?: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          event_type?: string
+          id?: string
+          payload?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_insights: {
+        Row: {
+          confidence: number
+          generated_at: string
+          learned_preferences: Json
+          next_best_actions: Json
+          user_id: string
+        }
+        Insert: {
+          confidence?: number
+          generated_at?: string
+          learned_preferences?: Json
+          next_best_actions?: Json
+          user_id: string
+        }
+        Update: {
+          confidence?: number
+          generated_at?: string
+          learned_preferences?: Json
+          next_best_actions?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_preferences: {
+        Row: {
+          auto_submit_enabled: boolean
+          min_match_score: number
+          require_approval: boolean
+          scan_enabled: boolean
+          scan_frequency: string
+          scan_sources: string[]
+          scan_time: string
+          submission_mode: string
+          timezone: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auto_submit_enabled?: boolean
+          min_match_score?: number
+          require_approval?: boolean
+          scan_enabled?: boolean
+          scan_frequency?: string
+          scan_sources?: string[]
+          scan_time?: string
+          submission_mode?: string
+          timezone?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auto_submit_enabled?: boolean
+          min_match_score?: number
+          require_approval?: boolean
+          scan_enabled?: boolean
+          scan_frequency?: string
+          scan_sources?: string[]
+          scan_time?: string
+          submission_mode?: string
+          timezone?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       worker_operations: {
         Row: {
-          id: UUID; user_id: UUID;
-          queue_name: "scraper-queue" | "ai-processing-queue" | "submission-queue";
-          idempotency_key: string; operation_id: UUID;
-          status: "running" | "retrying" | "completed" | "failed" | "manual_assist";
-          attempt_count: number; lease_until: Timestamp | null;
-          last_error_code: string | null; last_error_message: string | null;
-          created_at: Timestamp; updated_at: Timestamp; completed_at: Timestamp | null;
-        };
+          attempt_count: number
+          completed_at: string | null
+          created_at: string
+          id: string
+          idempotency_key: string
+          last_error_code: string | null
+          last_error_message: string | null
+          lease_until: string | null
+          operation_id: string
+          queue_name: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
         Insert: {
-          id?: UUID; user_id: UUID;
-          queue_name: "scraper-queue" | "ai-processing-queue" | "submission-queue";
-          idempotency_key: string; operation_id: UUID;
-          status?: "running" | "retrying" | "completed" | "failed" | "manual_assist";
-          attempt_count?: number; lease_until?: Timestamp | null;
-          last_error_code?: string | null; last_error_message?: string | null;
-          created_at?: Timestamp; updated_at?: Timestamp; completed_at?: Timestamp | null;
-        };
-        Update: Partial<Database["public"]["Tables"]["worker_operations"]["Insert"]>;
-        Relationships: [];
-      };
-    };
-    Views: Record<string, never>;
+          attempt_count?: number
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          last_error_code?: string | null
+          last_error_message?: string | null
+          lease_until?: string | null
+          operation_id: string
+          queue_name: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempt_count?: number
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          last_error_code?: string | null
+          last_error_message?: string | null
+          lease_until?: string | null
+          operation_id?: string
+          queue_name?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      worker_sessions: {
+        Row: {
+          auth_session_id: string
+          created_at: string
+          revoked_at: string | null
+          token_vault_ref: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          auth_session_id: string
+          created_at?: string
+          revoked_at?: string | null
+          token_vault_ref: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          auth_session_id?: string
+          created_at?: string
+          revoked_at?: string | null
+          token_vault_ref?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
     Functions: {
-      worker_current_context: {
-        Args: Record<string, never>;
-        Returns: { user_id: UUID | null; worker_enabled: boolean }[];
-      };
       claim_worker_operation: {
         Args: {
-          p_queue_name: "scraper-queue" | "ai-processing-queue" | "submission-queue";
-          p_idempotency_key: string;
-          p_operation_id: UUID;
-        };
-        Returns: boolean;
-      };
-    };
+          p_idempotency_key: string
+          p_operation_id: string
+          p_queue_name: string
+        }
+        Returns: boolean
+      }
+      custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      worker_current_context: {
+        Args: never
+        Returns: {
+          user_id: string
+          worker_enabled: boolean
+        }[]
+      }
+    }
     Enums: {
-      employment_type: EmploymentType;
-      application_status: ApplicationStatus;
-      execution_type: ExecutionType;
-      execution_status: ExecutionStatus;
-    };
-    CompositeTypes: Record<string, never>;
-  };
+      application_status:
+        | "discovered"
+        | "analyzing"
+        | "matched"
+        | "pending_approval"
+        | "approved"
+        | "generating_resume"
+        | "ready_to_submit"
+        | "submitting"
+        | "submitted"
+        | "interviewing"
+        | "offer_received"
+        | "rejected"
+        | "withdrawn"
+        | "manual_assist"
+        | "failed"
+      employment_type:
+        | "full_time"
+        | "part_time"
+        | "contract"
+        | "freelance"
+        | "internship"
+        | "temporary"
+        | "other"
+      execution_status:
+        | "pending"
+        | "running"
+        | "success"
+        | "failed"
+        | "fallback"
+        | "retrying"
+      execution_type:
+        | "scraping"
+        | "pre_filtering"
+        | "ai_matching"
+        | "resume_generation"
+        | "pdf_generation"
+        | "email_submission"
+        | "form_submission"
+        | "manual_assist"
+        | "status_sync"
+        | "system"
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
 }
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never) = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never) = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      application_status: [
+        "discovered",
+        "analyzing",
+        "matched",
+        "pending_approval",
+        "approved",
+        "generating_resume",
+        "ready_to_submit",
+        "submitting",
+        "submitted",
+        "interviewing",
+        "offer_received",
+        "rejected",
+        "withdrawn",
+        "manual_assist",
+        "failed",
+      ],
+      employment_type: [
+        "full_time",
+        "part_time",
+        "contract",
+        "freelance",
+        "internship",
+        "temporary",
+        "other",
+      ],
+      execution_status: [
+        "pending",
+        "running",
+        "success",
+        "failed",
+        "fallback",
+        "retrying",
+      ],
+      execution_type: [
+        "scraping",
+        "pre_filtering",
+        "ai_matching",
+        "resume_generation",
+        "pdf_generation",
+        "email_submission",
+        "form_submission",
+        "manual_assist",
+        "status_sync",
+        "system",
+      ],
+    },
+  },
+} as const

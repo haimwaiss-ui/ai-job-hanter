@@ -1,5 +1,5 @@
--- AI Job Hunter: BullMQ worker infrastructure
--- Additive migration. Preserves tenant composite FKs, private Storage and existing RLS.
+-- Applied to the connected Supabase project as version 20261115141627.
+-- Worker claims are bound to a dedicated Auth session, never a user's browser session.
 begin;
 
 alter table public.applications
@@ -8,6 +8,7 @@ alter table public.applications
 create table if not exists public.worker_sessions (
   user_id uuid primary key references auth.users(id) on delete cascade,
   token_vault_ref uuid not null unique,
+  auth_session_id uuid not null unique,
   revoked_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -20,24 +21,13 @@ create policy worker_sessions_select_own
   using (user_id = (select auth.uid()));
 
 drop policy if exists worker_sessions_insert_own on public.worker_sessions;
-create policy worker_sessions_insert_own
-  on public.worker_sessions for insert to authenticated
-  with check (user_id = (select auth.uid()));
-
 drop policy if exists worker_sessions_update_own on public.worker_sessions;
-create policy worker_sessions_update_own
-  on public.worker_sessions for update to authenticated
-  using (user_id = (select auth.uid()))
-  with check (user_id = (select auth.uid()));
-
 drop policy if exists worker_sessions_delete_own on public.worker_sessions;
-create policy worker_sessions_delete_own
-  on public.worker_sessions for delete to authenticated
-  using (user_id = (select auth.uid()));
 
-grant select, insert, update, delete on public.worker_sessions to authenticated;
+revoke all privileges on public.worker_sessions from anon, authenticated;
+grant select (user_id, token_vault_ref, revoked_at)
+  on public.worker_sessions to authenticated;
 grant usage on schema public to supabase_auth_admin;
-grant select on public.worker_sessions to supabase_auth_admin;
 
 create table if not exists public.worker_operations (
   id uuid primary key default gen_random_uuid(),
@@ -91,15 +81,17 @@ create policy worker_operations_update_worker
     and coalesce((select auth.jwt() ->> 'worker')::boolean, false)
   );
 
-grant select, insert on public.worker_operations to authenticated;
+revoke all privileges on public.worker_operations from anon, authenticated;
+grant select on public.worker_operations to authenticated;
+grant insert (
+  user_id, queue_name, idempotency_key, operation_id, status,
+  attempt_count, lease_until
+) on public.worker_operations to authenticated;
 grant update (
   operation_id, status, attempt_count, lease_until,
   last_error_code, last_error_message, updated_at, completed_at
 ) on public.worker_operations to authenticated;
 
--- Supabase Auth calls this hook when issuing or refreshing a JWT.
--- The worker claim is derived from a tenant-owned registration row, never
--- from user-editable user_metadata or queue data.
 create or replace function public.custom_access_token_hook(event jsonb)
 returns jsonb
 language plpgsql
@@ -109,14 +101,18 @@ set search_path = ''
 as $$
 declare
   claims jsonb := coalesce(event -> 'claims', '{}'::jsonb);
-  event_user_id uuid := nullif(event -> 'user' ->> 'id', '')::uuid;
+  event_user_id uuid := nullif(event ->> 'user_id', '')::uuid;
+  event_session_id uuid := nullif(event -> 'claims' ->> 'session_id', '')::uuid;
 begin
-  if event_user_id is not null and exists (
-    select 1
-    from public.worker_sessions as ws
-    where ws.user_id = event_user_id
-      and ws.revoked_at is null
-  ) then
+  if event_user_id is not null
+     and event_session_id is not null
+     and exists (
+       select 1
+       from public.worker_sessions as ws
+       where ws.user_id = event_user_id
+         and ws.auth_session_id = event_session_id
+         and ws.revoked_at is null
+     ) then
     claims := jsonb_set(claims, '{worker}', 'true'::jsonb, true);
   else
     claims := claims - 'worker';
@@ -126,10 +122,11 @@ begin
 end;
 $$;
 
-revoke all on function public.custom_access_token_hook(jsonb) from public, anon, authenticated;
-grant execute on function public.custom_access_token_hook(jsonb) to supabase_auth_admin;
+revoke all on function public.custom_access_token_hook(jsonb)
+  from public, anon, authenticated;
+grant execute on function public.custom_access_token_hook(jsonb)
+  to supabase_auth_admin;
 
--- Worker-side proof of the identity and claim actually seen by Postgres.
 create or replace function public.worker_current_context()
 returns table(user_id uuid, worker_enabled boolean)
 language sql
@@ -141,10 +138,11 @@ as $$
     auth.uid(),
     coalesce((auth.jwt() ->> 'worker')::boolean, false);
 $$;
-grant execute on function public.worker_current_context() to authenticated;
+revoke all on function public.worker_current_context()
+  from public, anon, authenticated;
+grant execute on function public.worker_current_context()
+  to authenticated;
 
--- Atomic tenant-scoped claim. A retry of the same BullMQ operation can reclaim
--- its own lease; a different duplicate cannot run while the lease is active.
 create or replace function public.claim_worker_operation(
   p_queue_name text,
   p_idempotency_key text,
@@ -164,7 +162,9 @@ begin
     raise exception 'Worker JWT required' using errcode = '42501';
   end if;
 
-  if p_queue_name not in ('scraper-queue', 'ai-processing-queue', 'submission-queue')
+  if p_queue_name is null
+    or p_queue_name not in ('scraper-queue', 'ai-processing-queue', 'submission-queue')
+    or p_idempotency_key is null
     or p_idempotency_key !~ '^[a-f0-9]{64}$'
     or p_operation_id is null then
     raise exception 'Invalid worker operation claim' using errcode = '22023';
@@ -207,9 +207,11 @@ begin
   return changed_rows = 1;
 end;
 $$;
-grant execute on function public.claim_worker_operation(text, text, uuid) to authenticated;
+revoke all on function public.claim_worker_operation(text, text, uuid)
+  from public, anon, authenticated;
+grant execute on function public.claim_worker_operation(text, text, uuid)
+  to authenticated;
 
--- Application writes are limited to the authenticated tenant and worker claim.
 drop policy if exists applications_update_worker on public.applications;
 create policy applications_update_worker
   on public.applications for update to authenticated
@@ -229,7 +231,7 @@ grant update (
 ) on public.applications to authenticated;
 
 comment on table public.worker_sessions is
-  'Stores only an opaque token-vault reference. Access and refresh tokens live outside Postgres.';
+  'Trusted server-provisioned worker sessions. Stores only an opaque vault reference and a dedicated Auth session id; users cannot create or modify rows.';
 comment on table public.worker_operations is
   'Tenant-scoped idempotency and lease state for BullMQ jobs. No credentials or raw external page content.';
 comment on column public.applications.manual_assist_resume_storage_path is

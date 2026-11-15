@@ -10,10 +10,25 @@ import type IORedis from "ioredis";
 
 const vaultSessionSchema = z.object({
   userId: z.string().uuid(),
+  sessionId: z.string().uuid(),
   accessToken: z.string().min(40),
   refreshToken: z.string().min(40),
   expiresAt: z.number().int().positive(),
 }).strict();
+
+/** Read only the signed JWT claim needed to bind a worker vault secret to one Auth session. */
+export function extractAuthSessionId(accessToken: string): string {
+  const parts = accessToken.split(".");
+  if (parts.length !== 3) throw new Error("Invalid worker access token");
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as {
+      session_id?: unknown;
+    };
+    return z.string().uuid().parse(payload.session_id);
+  } catch {
+    throw new Error("Invalid worker access token");
+  }
+}
 
 type VaultSession = z.infer<typeof vaultSessionSchema>;
 
@@ -42,8 +57,8 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
   ) {
     const region = process.env.AWS_REGION;
     this.prefix = (options?.secretPrefix ?? process.env.TOKEN_VAULT_SECRET_PREFIX ?? "").replace(/\/+$/, "");
-    this.supabaseUrl = options?.supabaseUrl ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-    this.anonKey = options?.anonKey ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+    this.supabaseUrl = options?.supabaseUrl ?? process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+    this.anonKey = options?.anonKey ?? process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
     if (!region && !options?.secrets) throw new Error("AWS_REGION is required for the token vault");
     if (!this.prefix || !this.supabaseUrl || !this.anonKey) {
@@ -82,7 +97,11 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
       const result = await this.secrets.send(new GetSecretValueCommand({ SecretId: secretId }));
       if (!result.SecretString) throw new Error("Missing secret value");
       const parsed = vaultSessionSchema.safeParse(JSON.parse(result.SecretString));
-      if (!parsed.success || parsed.data.userId !== expectedUserId) {
+      if (
+        !parsed.success ||
+        parsed.data.userId !== expectedUserId ||
+        extractAuthSessionId(parsed.data.accessToken) !== parsed.data.sessionId
+      ) {
         throw new Error("Vault identity mismatch");
       }
       return parsed.data;
@@ -128,8 +147,14 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
         throw new Error("Worker session refresh failed");
       }
 
+      const sessionId = extractAuthSessionId(data.session.access_token);
+      if (sessionId !== current.sessionId) {
+        throw new Error("Worker Auth session changed during refresh");
+      }
+
       const refreshed = vaultSessionSchema.parse({
         userId,
+        sessionId,
         accessToken: data.session.access_token,
         refreshToken: data.session.refresh_token,
         expiresAt: (data.session.expires_at ?? Math.floor(Date.now() / 1000) + data.session.expires_in) * 1000,
