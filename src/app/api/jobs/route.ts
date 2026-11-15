@@ -17,17 +17,15 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
-    .from("jobs")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false });
+  const [{ data, error }, { data: employerJobs, error: employerJobsError }] = await Promise.all([
+    supabase.from("jobs").select("*").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }),
+    supabase.from("employer_jobs").select("id,title,department,description,location,workplace_type,employment_type,created_at,employer_user_id").eq("status", "published").order("created_at", { ascending: false }).limit(100),
+  ]);
 
-  if (error) {
+  if (error || employerJobsError) {
     return NextResponse.json({ error: "Unable to load jobs" }, { status: 500 });
   }
-  return NextResponse.json({ jobs: data ?? [] });
+  return NextResponse.json({ jobs: data ?? [], employer_jobs: employerJobs ?? [] });
 }
 
 export async function POST(request: Request) {
