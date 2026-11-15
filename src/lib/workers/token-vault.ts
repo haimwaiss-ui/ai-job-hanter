@@ -18,6 +18,20 @@ const vaultSessionSchema = z.object({
 
 type VaultSession = z.infer<typeof vaultSessionSchema>;
 
+function toVaultSession(userId: string, session: UserAuthSession): VaultSession {
+  if (!session.user || session.user.id !== userId) {
+    throw new Error("Worker session identity mismatch");
+  }
+  const expiresAtSeconds = session.expires_at ??
+    Math.floor(Date.now() / 1000) + (session.expires_in ?? 3600);
+  return vaultSessionSchema.parse({
+    userId,
+    accessToken: session.access_token,
+    refreshToken: session.refresh_token,
+    expiresAt: expiresAtSeconds * 1000,
+  });
+}
+
 export interface UserAuthSession {
   access_token: string;
   refresh_token: string;
