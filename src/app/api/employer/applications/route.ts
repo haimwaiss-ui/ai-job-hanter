@@ -8,9 +8,9 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { data, error } = await supabase.from("employer_applicant_profiles").select("*").eq("employer_user_id", user.id).order("created_at", { ascending: false });
+  const { data, error } = await supabase.rpc("get_employer_applicant_profiles");
   if (error) return NextResponse.json({ error: "Unable to load applicants" }, { status: 500 });
-  const applications = (data ?? []).map(x => ({
+  const applications = [...(data ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(x => ({
     id: x.application_id,
     employer_job_id: x.employer_job_id,
     candidate_user_id: x.candidate_user_id,
