@@ -15,6 +15,7 @@ export async function POST(request: Request) {
   if (!body?.job_id) return NextResponse.json({ error: "Missing job id" }, { status: 422 });
   const { data: job, error: jobError } = await supabase.from("employer_jobs").select("id,employer_user_id,status").eq("id", body.job_id).eq("status", "published").maybeSingle();
   if (jobError || !job) return NextResponse.json({ error: "המשרה אינה זמינה להגשת מועמדות" }, { status: 404 });
+  if (job.employer_user_id === user.id) return NextResponse.json({ error: "לא ניתן להגיש מועמדות למשרה של החברה שלך" }, { status: 403 });
   const { data, error } = await supabase.from("employer_applications").insert({
     employer_user_id: job.employer_user_id,
     employer_job_id: job.id,
