@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database, ExecutionStatus, ExecutionType, Json } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
+import type { ExecutionStatus, ExecutionType } from "@/lib/supabase/types";
 
 export interface SafeWorkerError {
   code: string;

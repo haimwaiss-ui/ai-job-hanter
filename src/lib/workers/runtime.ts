@@ -23,7 +23,8 @@ import {
   submissionQueuePayloadSchema,
 } from "@/lib/queues/contracts";
 import { QUEUE_NAMES, DEFAULT_JOB_OPTIONS } from "@/lib/queues/queues";
-import type { Database, ExecutionType } from "@/lib/supabase/database.types";
+import type { Database } from "@/lib/supabase/database.types";
+import type { ExecutionType } from "@/lib/supabase/types";
 import { createTenantWorkerClient, assertWorkerTenant } from "./tenant-client";
 import type { UserTokenVault } from "./token-vault";
 import { writeExecutionLog, toSafeWorkerError } from "./execution-log";

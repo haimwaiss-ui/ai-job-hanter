@@ -69,7 +69,7 @@ export async function PATCH(request: Request) {
   const { error: eventError } = await supabase.from("user_activity_events").insert({
     user_id: user.id,
     event_type: "profile_updated",
-    entity_type: "resume",
+    entity_type: null,
     payload: { fields: Object.keys(parsed.data).join(",") },
   });
   if (eventError) {
