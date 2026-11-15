@@ -47,6 +47,7 @@ export async function POST(request: Request) {
   const status = body.publish === true ? "published" : "draft";
   const { data: job, error } = await supabase.from("employer_jobs").insert({
     employer_user_id: user.id,
+    company_name: body.company_name.trim().slice(0, 160),
     title: body.title.trim().slice(0, 180),
     department: typeof body.department === "string" ? body.department.slice(0, 120) : null,
     description: typeof body.description === "string" ? body.description.slice(0, 12000) : "",
