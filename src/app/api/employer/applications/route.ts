@@ -8,17 +8,20 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { data, error } = await supabase.rpc("get_employer_applicant_profiles");
+  const { data, error } = await supabase.from("employer_applications")
+    .select("id,employer_job_id,candidate_user_id,cover_letter,status,created_at,employer_jobs(title,department,location),candidate_public_profiles!employer_applications_candidate_public_profile_fk(full_name,headline,location,skills)")
+    .eq("employer_user_id", user.id)
+    .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: "Unable to load applicants" }, { status: 500 });
-  const applications = [...(data ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map(x => ({
-    id: x.application_id,
+  const applications = (data ?? []).map(x => ({
+    id: x.id,
     employer_job_id: x.employer_job_id,
     candidate_user_id: x.candidate_user_id,
     cover_letter: x.cover_letter,
     status: x.status,
     created_at: x.created_at,
-    employer_jobs: { title: x.job_title, department: x.job_department, location: x.job_location },
-    profiles: { full_name: x.full_name, headline: x.headline, location: x.candidate_location, skills: x.skills },
+    employer_jobs: x.employer_jobs,
+    profiles: x.candidate_public_profiles,
   }));
   return NextResponse.json({ applications });
 }
