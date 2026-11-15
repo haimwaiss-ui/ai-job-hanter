@@ -76,3 +76,28 @@ Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database 
 The live signup trigger was tested in a rolled-back transaction with a 200-character metadata name and created a profile with a 160-character name. Live privilege checks confirmed that profile INSERT, profile email UPDATE, resume parsed-text UPDATE, application status INSERT, and worker-session INSERT/UPDATE/DELETE are denied to `authenticated`. The live Storage bucket is private.
 
 Remaining security work: configure leaked-password protection in Supabase Auth, add malware scanning/quarantine for uploaded PDFs, and implement the trusted worker-session provisioning flow before enabling worker execution.
+## Employer workspace, web search, and Gmail
+
+The employer workspace uses the additive migration `009_employer_workspace_and_recruiting_pipeline.sql`; Gmail connections use `008_gmail_readonly_oauth_connections.sql`. Employer records are user-scoped with RLS. Applicant details are not exposed to employers until a candidate explicitly applies.
+
+### Live web job search
+Set the server-only `TAVILY_API_KEY` environment variable in Vercel to enable live web search and import of job listing results. The scan searches selected job boards and stores new links in the signed-in user's jobs list, deduplicating by source URL. Without this key, the endpoint fails closed and explains that search is not configured.
+
+Google Custom Search JSON API is closed to new customers, so the app uses a dedicated web-search provider instead.
+
+### Gmail read-only scanning
+Configure a Google OAuth web application with this exact redirect URI:
+`https://ai-job-hanter.vercel.app/api/gmail/callback`
+
+Enable the Gmail API and add these server-only Vercel environment variables:
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GMAIL_TOKEN_ENCRYPTION_KEY` — a random 32-byte key encoded as base64.
+
+The app requests only `https://www.googleapis.com/auth/gmail.readonly`. Refresh tokens are encrypted with AES-256-GCM before storage. The scan checks recent message headers/snippets for job-related terms and stores matching snippets as private job records; it does not send or modify mail. Never expose these credentials through `NEXT_PUBLIC_*`.
+
+### Email OTP authentication
+The login screen uses email one-time codes. In Supabase Dashboard → Authentication → Email Templates → Magic Link, change the template to include `{{ .Token }}` and remove `{{ .ConfirmationURL }}` so the email contains the six-digit code expected by the UI. The code is verified with `verifyOtp`.
+
+### Israeli locality picker
+The location selector queries the official Population and Immigration Authority locality dataset at data.gov.il and only commits a value after the user selects a returned locality. It requires the upstream dataset API to remain reachable.
