@@ -104,6 +104,122 @@ export type Database = {
           },
         ]
       }
+      employer_applications: {
+        Row: {
+          candidate_user_id: string
+          cover_letter: string | null
+          created_at: string
+          employer_job_id: string
+          employer_user_id: string
+          id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          candidate_user_id: string
+          cover_letter?: string | null
+          created_at?: string
+          employer_job_id: string
+          employer_user_id: string
+          id?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          candidate_user_id?: string
+          cover_letter?: string | null
+          created_at?: string
+          employer_job_id?: string
+          employer_user_id?: string
+          id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employer_applications_employer_job_id_fkey"
+            columns: ["employer_job_id"]
+            isOneToOne: false
+            referencedRelation: "employer_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employer_jobs: {
+        Row: {
+          created_at: string
+          department: string | null
+          description: string
+          employer_user_id: string
+          employment_type: string
+          id: string
+          location: string | null
+          salary_range: string | null
+          status: string
+          title: string
+          updated_at: string
+          workplace_type: string
+        }
+        Insert: {
+          created_at?: string
+          department?: string | null
+          description?: string
+          employer_user_id: string
+          employment_type?: string
+          id?: string
+          location?: string | null
+          salary_range?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+          workplace_type?: string
+        }
+        Update: {
+          created_at?: string
+          department?: string | null
+          description?: string
+          employer_user_id?: string
+          employment_type?: string
+          id?: string
+          location?: string | null
+          salary_range?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          workplace_type?: string
+        }
+        Relationships: []
+      }
+      employer_profiles: {
+        Row: {
+          company_description: string | null
+          company_name: string
+          company_website: string | null
+          contact_name: string | null
+          created_at: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_description?: string | null
+          company_name: string
+          company_website?: string | null
+          contact_name?: string | null
+          created_at?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_description?: string | null
+          company_name?: string
+          company_website?: string | null
+          contact_name?: string | null
+          created_at?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       execution_logs: {
         Row: {
           application_id: string | null
