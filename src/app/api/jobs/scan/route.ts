@@ -34,7 +34,6 @@ export async function POST(request: Request) {
       max_results: 20,
       include_answer: false,
       include_raw_content: false,
-      include_domains: ["alljobs.co.il", "drushim.co.il", "jobmaster.co.il", "linkedin.com/jobs", "glassdoor.com", "indeed.com"],
     }),
     cache: "no-store",
   });
