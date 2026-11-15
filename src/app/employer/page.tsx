@@ -6,7 +6,7 @@ import { BriefcaseBusiness, Building2, Users, Plus, Search, ArrowLeft, LogOut, G
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type EmployerJob = { id: string; title: string; department: string | null; location: string | null; status: string; created_at: string; workplace_type: string };
-type Applicant = { id: string; candidate_user_id: string; employer_job_id: string; cover_letter: string | null; status: string; created_at: string; employer_jobs?: { title?: string; department?: string | null; location?: string | null } | null };
+type Applicant = { id: string; candidate_user_id: string; employer_job_id: string; cover_letter: string | null; status: string; created_at: string; employer_jobs?: { title?: string; department?: string | null; location?: string | null } | null; profiles?: { full_name?: string | null; headline?: string | null; location?: string | null; skills?: string[] } | null };
 const statusLabels: Record<string,string> = { new: "חדש", reviewing: "בבדיקה", interview: "ראיון", offer: "הצעה", rejected: "נדחה", hired: "התקבל" };
 
 export default function EmployerDashboard() {
@@ -112,7 +112,7 @@ export default function EmployerDashboard() {
             {!jobs.length && <div className="employer-empty"><BriefcaseBusiness size={30}/><strong>עדיין לא פרסמת משרה</strong><span>צור מודעה ראשונה כדי להתחיל לקבל מועמדים.</span><button onClick={()=>setShowForm(true)}>פרסום משרה ראשונה</button></div>}
           </section>
           <section className="employer-panel"><div className="employer-panel-head"><div><h2>תיבת מועמדים</h2><p>מועמדים שממתינים לטיפול</p></div><Users size={19}/></div>
-            {applicants.slice(0,5).map(x=><div className="employer-applicant-row" key={x.id}><div className="employer-candidate-avatar">{(x.candidate_user_id||"מ").slice(0,1).toUpperCase()}</div><div><strong>מועמד/ת · {x.candidate_user_id.slice(0,8)}</strong><small>{x.employer_jobs?.title || "משרה"} · {new Date(x.created_at).toLocaleDateString("he-IL")}</small></div><span>{statusLabels[x.status] || x.status}</span></div>)}
+            {applicants.slice(0,5).map(x=><div className="employer-applicant-row" key={x.id}><div className="employer-candidate-avatar">{(x.candidate_user_id||"מ").slice(0,1).toUpperCase()}</div><div><strong>{x.profiles?.full_name || "מועמד/ת"}</strong><small>{x.employer_jobs?.title || "משרה"} · {new Date(x.created_at).toLocaleDateString("he-IL")}</small></div><span>{statusLabels[x.status] || x.status}</span></div>)}
             {!applicants.length && <div className="employer-empty small">מועמדים חדשים שיוגשו למשרות שלך יופיעו כאן.</div>}
           </section>
         </div>
