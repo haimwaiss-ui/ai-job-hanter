@@ -733,41 +733,7 @@ export type Database = {
       }
     }
     Views: {
-      employer_applicant_profiles: {
-        Row: {
-          application_id: string | null
-          candidate_location: string | null
-          candidate_user_id: string | null
-          cover_letter: string | null
-          created_at: string | null
-          employer_job_id: string | null
-          employer_user_id: string | null
-          full_name: string | null
-          headline: string | null
-          job_department: string | null
-          job_location: string | null
-          job_title: string | null
-          skills: string[] | null
-          status: string | null
-          updated_at: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "employer_applications_candidate_profile_fk"
-            columns: ["candidate_user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "employer_applications_employer_job_id_fkey"
-            columns: ["employer_job_id"]
-            isOneToOne: false
-            referencedRelation: "employer_jobs"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
+      [_ in never]: never
     }
     Functions: {
       claim_worker_operation: {
@@ -779,6 +745,26 @@ export type Database = {
         Returns: boolean
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      get_employer_applicant_profiles: {
+        Args: never
+        Returns: {
+          application_id: string
+          candidate_location: string
+          candidate_user_id: string
+          cover_letter: string
+          created_at: string
+          employer_job_id: string
+          employer_user_id: string
+          full_name: string
+          headline: string
+          job_department: string
+          job_location: string
+          job_title: string
+          skills: string[]
+          status: string
+          updated_at: string
+        }[]
+      }
       worker_current_context: {
         Args: never
         Returns: {
