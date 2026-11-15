@@ -104,6 +104,33 @@ export type Database = {
           },
         ]
       }
+      candidate_public_profiles: {
+        Row: {
+          full_name: string | null
+          headline: string | null
+          location: string | null
+          skills: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          full_name?: string | null
+          headline?: string | null
+          location?: string | null
+          skills?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          full_name?: string | null
+          headline?: string | null
+          location?: string | null
+          skills?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       employer_applications: {
         Row: {
           candidate_user_id: string
@@ -141,6 +168,13 @@ export type Database = {
             columns: ["candidate_user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "employer_applications_candidate_public_profile_fk"
+            columns: ["candidate_user_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_public_profiles"
             referencedColumns: ["user_id"]
           },
           {
@@ -745,26 +779,6 @@ export type Database = {
         Returns: boolean
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
-      get_employer_applicant_profiles: {
-        Args: never
-        Returns: {
-          application_id: string
-          candidate_location: string
-          candidate_user_id: string
-          cover_letter: string
-          created_at: string
-          employer_job_id: string
-          employer_user_id: string
-          full_name: string
-          headline: string
-          job_department: string
-          job_location: string
-          job_title: string
-          skills: string[]
-          status: string
-          updated_at: string
-        }[]
-      }
       worker_current_context: {
         Args: never
         Returns: {
