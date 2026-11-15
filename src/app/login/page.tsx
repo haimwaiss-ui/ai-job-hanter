@@ -28,7 +28,7 @@ export default function LoginPage() {
     setBusy(true);
     const result = mode === "login"
       ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
+      : await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName }, emailRedirectTo: `${window.location.origin}/login` } });
     setBusy(false);
     if (result.error) { setError(result.error.message); return; }
     if (mode === "signup" && !result.data.session) {
