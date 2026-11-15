@@ -29,6 +29,7 @@ export function createTenantWorkerClient(accessToken: string) {
 export async function assertWorkerTenant(
   supabase: SupabaseClient<Database>,
   expectedUserId: string,
+  expectedTokenVaultRef: string,
 ): Promise<void> {
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError || !authData.user || authData.user.id !== expectedUserId) {
@@ -41,7 +42,8 @@ export async function assertWorkerTenant(
     error ||
     !context ||
     context.user_id !== expectedUserId ||
-    context.worker_enabled !== true
+    context.worker_enabled !== true ||
+    context.token_vault_ref !== expectedTokenVaultRef
   ) {
     throw new Error("Worker JWT claim or database tenant context is invalid");
   }
