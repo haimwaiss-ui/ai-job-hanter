@@ -57,8 +57,8 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
   ) {
     const region = process.env.AWS_REGION;
     this.prefix = (options?.secretPrefix ?? process.env.TOKEN_VAULT_SECRET_PREFIX ?? "").replace(/\/+$/, "");
-    this.supabaseUrl = options?.supabaseUrl ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-    this.anonKey = options?.anonKey ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+    this.supabaseUrl = options?.supabaseUrl ?? process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+    this.anonKey = options?.anonKey ?? process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
     if (!region && !options?.secrets) throw new Error("AWS_REGION is required for the token vault");
     if (!this.prefix || !this.supabaseUrl || !this.anonKey) {
