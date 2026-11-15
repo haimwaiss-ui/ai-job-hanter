@@ -99,9 +99,11 @@ seconds from the private `resumes` bucket after tenant ownership checks.
 - `npm run test:unit` runs payload, idempotency, tenant assertion, retry,
   shutdown, and CAPTCHA fallback unit tests.
 - `npm run test:integration` runs two-user RLS isolation checks when
-  `WORKER_RLS_USER_A_JWT` and `WORKER_RLS_USER_B_JWT` are configured alongside
-  the public Supabase URL/key. These must be ordinary user JWTs, not service-role
-  credentials.
+  `WORKER_RLS_USER_A_JWT`, `WORKER_RLS_USER_B_JWT`, and (for the database
+  lease/idempotency test) `WORKER_IDEMPOTENCY_JWT` are configured alongside
+  the public Supabase URL/key. The first two are ordinary user JWTs; the
+  idempotency token must belong to a user with an active worker session. Never
+  use a service-role credential.
 - The live Supabase project and Vercel project still require migration/hook,
   Redis, AWS Secrets Manager and worker-host configuration before the runtime
   can process real jobs. The scraping/AI/submission business adapters are not
