@@ -75,6 +75,14 @@ class WorkerTimeoutError extends Error {
   }
 }
 
+class WorkerOperationBusyError extends Error {
+  readonly code = "WORKER_OPERATION_BUSY";
+  constructor() {
+    super("Worker operation is already leased");
+    this.name = "WorkerOperationBusyError";
+  }
+}
+
 function withTimeout<T>(
   timeoutMs: number,
   task: (signal: AbortSignal) => Promise<T>,
@@ -162,7 +170,7 @@ async function recordTerminalFailureIfNeeded(
 ): Promise<void> {
   await tokenVault.withAccessToken(payload.tokenVaultRef, payload.userId, async (accessToken) => {
     const supabase = createTenantWorkerClient(accessToken);
-    await assertWorkerTenant(supabase, payload.userId);
+    await assertWorkerTenant(supabase, payload.userId, payload.tokenVaultRef);
 
     const { data: operation, error: readError } = await supabase
       .from("worker_operations")
@@ -237,15 +245,15 @@ function createTypedWorker<P extends WorkerPayload>(
       payload.userId,
       async (accessToken) => {
         const supabase = createTenantWorkerClient(accessToken);
-        await assertWorkerTenant(supabase, payload.userId);
+        await assertWorkerTenant(supabase, payload.userId, payload.tokenVaultRef);
 
-        const { data: claimed, error: claimError } = await supabase.rpc("claim_worker_operation", {
+        const { data: claimResult, error: claimError } = await supabase.rpc("claim_worker_operation", {
           p_queue_name: queueName,
           p_idempotency_key: payload.idempotencyKey,
           p_operation_id: payload.operationId,
         });
         if (claimError) throw new Error("Worker idempotency claim failed");
-        if (!claimed) {
+        if (claimResult === "duplicate") {
           dependencies.logger.info("duplicate_job_skipped", {
             queueName,
             jobId: job.id ?? null,
@@ -253,6 +261,8 @@ function createTypedWorker<P extends WorkerPayload>(
           });
           return { duplicate: true };
         }
+        if (claimResult === "busy") throw new WorkerOperationBusyError();
+        if (claimResult !== "claimed") throw new Error("Worker idempotency claim returned an invalid state");
 
         const refs = executionRefs(payload);
         try {
