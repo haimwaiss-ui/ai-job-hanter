@@ -1,4 +1,5 @@
 import {
+  CreateSecretCommand,
   GetSecretValueCommand,
   PutSecretValueCommand,
   SecretsManagerClient,
@@ -17,7 +18,17 @@ const vaultSessionSchema = z.object({
 
 type VaultSession = z.infer<typeof vaultSessionSchema>;
 
+export interface UserAuthSession {
+  access_token: string;
+  refresh_token: string;
+  expires_at?: number | null;
+  expires_in?: number | null;
+  user: { id: string };
+}
+
 export interface UserTokenVault {
+  storeSession(userId: string, session: UserAuthSession, tokenVaultRef?: string): Promise<string>;
+  updateSession(userId: string, tokenVaultRef: string, session: UserAuthSession): Promise<void>;
   withAccessToken<T>(
     tokenVaultRef: string,
     userId: string,
@@ -32,7 +43,7 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
   private readonly anonKey: string;
 
   constructor(
-    private readonly redis: IORedis,
+    private readonly redis: IORedis | undefined,
     options?: {
       secrets?: SecretsManagerClient;
       secretPrefix?: string;
@@ -50,6 +61,38 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
       throw new Error("Token vault configuration is incomplete");
     }
     this.secrets = options?.secrets ?? new SecretsManagerClient({ region });
+  }
+
+  async storeSession(
+    userId: string,
+    session: UserAuthSession,
+    tokenVaultRef = randomUUID(),
+  ): Promise<string> {
+    const stored = toVaultSession(userId, session);
+    if (!z.string().uuid().safeParse(tokenVaultRef).success) {
+      throw new Error("Invalid token vault reference");
+    }
+
+    await this.secrets.send(new CreateSecretCommand({
+      Name: this.secretId(userId, tokenVaultRef),
+      SecretString: JSON.stringify(stored),
+    }));
+    return tokenVaultRef;
+  }
+
+  async updateSession(
+    userId: string,
+    tokenVaultRef: string,
+    session: UserAuthSession,
+  ): Promise<void> {
+    if (!z.string().uuid().safeParse(tokenVaultRef).success) {
+      throw new Error("Invalid token vault reference");
+    }
+    const stored = toVaultSession(userId, session);
+    await this.secrets.send(new PutSecretValueCommand({
+      SecretId: this.secretId(userId, tokenVaultRef),
+      SecretString: JSON.stringify(stored),
+    }));
   }
 
   async withAccessToken<T>(
@@ -97,6 +140,8 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
     tokenVaultRef: string,
     initial: VaultSession,
   ): Promise<VaultSession> {
+    const redis = this.redis;
+    if (!redis) throw new Error("Redis is required to coordinate token refresh");
     const lockKey = "worker:vault-refresh:" + createHash("sha256")
       .update(userId + ":" + tokenVaultRef)
       .digest("hex");
@@ -105,7 +150,7 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
     let acquired = false;
 
     while (!acquired && Date.now() < lockDeadline) {
-      acquired = (await this.redis.set(lockKey, lockToken, "PX", 30_000, "NX")) === "OK";
+      acquired = (await redis.set(lockKey, lockToken, "PX", 30_000, "NX")) === "OK";
       if (!acquired) await sleep(250);
     }
     if (!acquired) throw new Error("Token vault refresh is busy; retry the job");
@@ -143,7 +188,7 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
     } catch {
       throw new Error("Unable to refresh worker credentials");
     } finally {
-      await this.redis.eval(
+      await redis.eval(
         "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
         1,
         lockKey,
