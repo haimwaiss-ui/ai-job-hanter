@@ -10,8 +10,8 @@ const configured = Boolean(url && anonKey && userAToken && userBToken);
 const suite = configured ? describe : describe.skip;
 
 suite("worker tenant RLS isolation", () => {
-  let userA: SupabaseClient;
-  let userB: SupabaseClient;
+  let userA: SupabaseClient | null = null;
+  let userB: SupabaseClient | null = null;
   let userAId = "";
   let userBId = "";
 
@@ -40,9 +40,9 @@ suite("worker tenant RLS isolation", () => {
 
   it("never returns another tenant's jobs", async () => {
     const [aOwn, aOther, bOther] = await Promise.all([
-      userA.from("jobs").select("user_id").limit(50),
-      userA.from("jobs").select("id").eq("user_id", userBId),
-      userB.from("jobs").select("id").eq("user_id", userAId),
+      userA!.from("jobs").select("user_id").limit(50),
+      userA!.from("jobs").select("id").eq("user_id", userBId),
+      userB!.from("jobs").select("id").eq("user_id", userAId),
     ]);
 
     expect(aOwn.error).toBeNull();
@@ -54,7 +54,7 @@ suite("worker tenant RLS isolation", () => {
   });
 
   it("rejects cross-tenant execution log writes", async () => {
-    const { error } = await userA.from("execution_logs").insert({
+    const { error } = await userA!.from("execution_logs").insert({
       user_id: userBId,
       execution_type: "system",
       status: "failed",
