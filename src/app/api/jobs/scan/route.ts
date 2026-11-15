@@ -25,9 +25,9 @@ export async function POST(request: Request) {
 
   const searchResponse = await fetch("https://api.tavily.com/search", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
     body: JSON.stringify({
-      api_key: apiKey,
+      country: "Israel",
       query,
       search_depth: "advanced",
       topic: "general",
