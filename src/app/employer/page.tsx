@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BriefcaseBusiness, Building2, Users, Plus, Search, ArrowLeft, LogOut, MapPin, Globe2, MoreHorizontal, CheckCircle2 } from "lucide-react";
+import { BriefcaseBusiness, Building2, Users, Plus, Search, ArrowLeft, LogOut, Globe2, MoreHorizontal } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type EmployerJob = { id: string; title: string; department: string | null; location: string | null; status: string; created_at: string; workplace_type: string };
@@ -64,10 +64,10 @@ export default function EmployerDashboard() {
   async function saveCompany() {
     if (!company.company_name.trim()) { setNotice("יש להזין שם חברה"); return; }
     setSaving(true);
-    const response = await fetch("/api/employer/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...company, title: "פרופיל חברה — טיוטה", description: "", publish: false }) });
+    const response = await fetch("/api/employer/company", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(company) });
     const result = await response.json(); setSaving(false);
     if (!response.ok) { setNotice(result.error ?? "לא ניתן לשמור"); return; }
-    setJobs([result.job, ...jobs]); await changeJobStatus(result.job.id, "draft"); setNotice("פרטי החברה נשמרו");
+    setCompany(result.company); setNotice("פרטי החברה נשמרו");
   }
 
   async function logout() {
