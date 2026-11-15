@@ -194,7 +194,7 @@ export interface Database {
     Functions: {
       worker_current_context: {
         Args: Record<string, never>;
-        Returns: { user_id: UUID | null; worker_enabled: boolean }[];
+        Returns: { user_id: UUID | null; worker_enabled: boolean; token_vault_ref: UUID | null }[];
       };
       claim_worker_operation: {
         Args: {
@@ -202,7 +202,7 @@ export interface Database {
           p_idempotency_key: string;
           p_operation_id: UUID;
         };
-        Returns: boolean;
+        Returns: string;
       };
     };
     Enums: {
