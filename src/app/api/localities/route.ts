@@ -18,9 +18,9 @@ async function loadLocalities(): Promise<Locality[]> {
   const data = await dataResponse.json();
   const records = data?.result?.records ?? [];
   return records.map((row: any) => ({
-    name: String(row.Name_Hebrew ?? row["שם_ישוב"] ?? row["שם יישוב"] ?? row.name ?? "").trim(),
-    code: String(row.Code ?? row["סמל_ישוב"] ?? row._id ?? "").trim(),
-    district: String(row.District ?? row["שם מחוז"] ?? row["שם_נפה"] ?? "").trim(),
+    name: String(row.city_name_he ?? row.Name_Hebrew ?? row["שם_ישוב"] ?? row["שם יישוב"] ?? row.name ?? "").trim(),
+    code: String(row.city_code ?? row.Code ?? row["סמל_ישוב"] ?? row._id ?? "").trim(),
+    district: String(row.region_name ?? row.District ?? row["שם מחוז"] ?? row["שם_נפה"] ?? "").trim(),
   })).filter((x: Locality) => x.name && x.code);
 }
 
