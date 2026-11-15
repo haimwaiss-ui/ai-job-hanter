@@ -19,7 +19,7 @@ export async function GET() {
 
   const [{ data, error }, { data: employerJobs, error: employerJobsError }] = await Promise.all([
     supabase.from("jobs").select("*").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }),
-    supabase.from("employer_jobs").select("id,title,department,description,location,workplace_type,employment_type,created_at,employer_user_id").eq("status", "published").order("created_at", { ascending: false }).limit(100),
+    supabase.from("employer_jobs").select("id,title,company_name,department,description,location,workplace_type,employment_type,created_at,employer_user_id").eq("status", "published").order("created_at", { ascending: false }).limit(100),
   ]);
 
   if (error || employerJobsError) {
