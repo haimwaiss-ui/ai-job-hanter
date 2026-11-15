@@ -9,7 +9,9 @@ export async function GET(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.redirect(new URL("/login", request.url));
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!clientId) return NextResponse.json({ error: "נדרש להגדיר GOOGLE_CLIENT_ID ו-GOOGLE_CLIENT_SECRET ב-Vercel" }, { status: 503 });
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const encryptionKey = Buffer.from(process.env.GMAIL_TOKEN_ENCRYPTION_KEY ?? "", "base64");
+  if (!clientId || !clientSecret || encryptionKey.length !== 32) return NextResponse.json({ error: "נדרש להגדיר GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET ומפתח הצפנה ב-Vercel" }, { status: 503 });
   const state = randomBytes(24).toString("hex");
   const redirectUri = new URL("/api/gmail/callback", request.url).toString();
   const params = new URLSearchParams({
