@@ -289,6 +289,36 @@ export type Database = {
           },
         ]
       }
+      gmail_connections: {
+        Row: {
+          connected_at: string
+          refresh_token_ciphertext: string
+          refresh_token_iv: string
+          refresh_token_tag: string
+          scopes: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          connected_at?: string
+          refresh_token_ciphertext: string
+          refresh_token_iv: string
+          refresh_token_tag: string
+          scopes?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          connected_at?: string
+          refresh_token_ciphertext?: string
+          refresh_token_iv?: string
+          refresh_token_tag?: string
+          scopes?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       jobs: {
         Row: {
           application_url: string | null
