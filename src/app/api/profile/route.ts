@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { profileUpdateSchema } from "@/lib/validation/job-hunter";
+import { isIsraeliLocality } from "@/lib/israeli-localities";
 import {
   contentLengthExceeds,
   hasJsonContentType,
@@ -50,6 +51,14 @@ export async function PATCH(request: Request) {
   const parsed = profileUpdateSchema.safeParse(body);
   if (!parsed.success || Object.keys(parsed.data ?? {}).length === 0) {
     return NextResponse.json({ error: "Invalid profile update" }, { status: 422 });
+  }
+
+  if (parsed.data.location !== undefined && parsed.data.location !== null) {
+    try {
+      if (!(await isIsraeliLocality(parsed.data.location))) return NextResponse.json({ error: "יש לבחור יישוב קיים מתוך הרשימה" }, { status: 422 });
+    } catch {
+      return NextResponse.json({ error: "מאגר היישובים אינו זמין כרגע; לא נשמר מיקום חופשי" }, { status: 503 });
+    }
   }
 
   const { data, error } = await supabase
