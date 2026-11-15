@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { hasJsonContentType, isSameOriginMutation, MAX_JSON_BODY_BYTES, contentLengthExceeds } from "@/lib/http/request-guards";
+import { isIsraeliLocality } from "@/lib/israeli-localities";
 
 export const runtime = "nodejs";
 
@@ -25,8 +26,13 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
-  if (!body || typeof body.company_name !== "string" || !body.company_name.trim() || typeof body.title !== "string" || !body.title.trim()) {
+  if (!body || typeof body.company_name !== "string" || !body.company_name.trim() || typeof body.title !== "string" || !body.title.trim() || typeof body.location !== "string" || !body.location.trim()) {
     return NextResponse.json({ error: "יש להזין שם חברה ושם משרה" }, { status: 422 });
+  }
+  try {
+    if (!(await isIsraeliLocality(body.location))) return NextResponse.json({ error: "יש לבחור עיר או יישוב מהרשימה הרשמית" }, { status: 422 });
+  } catch {
+    return NextResponse.json({ error: "מאגר היישובים אינו זמין כרגע" }, { status: 503 });
   }
   const profile = {
     user_id: user.id,
