@@ -154,6 +154,7 @@ export type Database = {
       }
       employer_jobs: {
         Row: {
+          company_name: string | null
           created_at: string
           department: string | null
           description: string
@@ -168,6 +169,7 @@ export type Database = {
           workplace_type: string
         }
         Insert: {
+          company_name?: string | null
           created_at?: string
           department?: string | null
           description?: string
@@ -182,6 +184,7 @@ export type Database = {
           workplace_type?: string
         }
         Update: {
+          company_name?: string | null
           created_at?: string
           department?: string | null
           description?: string
