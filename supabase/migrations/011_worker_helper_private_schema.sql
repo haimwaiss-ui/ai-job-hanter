@@ -4,7 +4,7 @@
 begin;
 
 create schema if not exists private;
-revoke all on schema private from public, anon;
+revoke all on schema private from public, anon, authenticated;
 grant usage on schema private to authenticated;
 
 create or replace function private.is_active_worker_session()
@@ -28,7 +28,7 @@ as $$
 $$;
 
 revoke all on function private.is_active_worker_session()
-  from public, anon;
+  from public, anon, authenticated;
 grant execute on function private.is_active_worker_session()
   to authenticated;
 
