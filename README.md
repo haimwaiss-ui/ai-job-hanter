@@ -108,3 +108,36 @@ The login screen uses email one-time codes. In Supabase Dashboard → Authentica
 
 ### Israeli locality picker
 The location selector queries the official Population and Immigration Authority locality dataset at data.gov.il and only commits a value after the user selects a returned locality. It requires the upstream dataset API to remain reachable.
+
+
+### Worker security and verification follow-up
+
+Migration `011_worker_helper_private_schema.sql` moves the SECURITY DEFINER
+worker-session predicate from the exposed `public` schema into the non-exposed
+`private` schema. Apply it only after reviewing it against the live schema and
+the recorded remote migration history. Do not add `private` to Supabase's
+Exposed schemas; the RLS policies and the invoker RPC call the helper internally.
+
+The worker test suite includes strict payload/credential rejection,
+tenant-identity assertions, deterministic deduplication keys, bounded retry
+configuration, graceful worker-resource shutdown, and CAPTCHA-to-Manual-Assist
+fallback. Run:
+
+```bash
+npm run typecheck
+npm run test:unit
+npm run test:integration
+npm run build
+```
+
+The live integration tests use only the Supabase publishable/anon key plus
+user-scoped worker JWTs. They are skipped unless these server-side test
+environment variables are provided:
+
+- `WORKER_IDEMPOTENCY_JWT`
+- `WORKER_RLS_USER_A_JWT`
+- `WORKER_RLS_USER_B_JWT`
+
+The two RLS identities must be different users with active worker sessions.
+Never use a service-role key. The integration tests create minimal
+tenant-scoped `worker_operations` records and do not delete production data.
