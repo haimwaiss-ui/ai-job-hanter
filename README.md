@@ -73,7 +73,7 @@ Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `
 
 `POST /api/worker/queue` accepts only queue-specific input. The authenticated user ID, operation ID, idempotency key, and opaque token-vault reference are derived server-side. Before enqueueing, the route checks that the signed-in user owns each referenced job, resume, or application and has an active worker-session record. It never creates or updates `worker_sessions`.
 
-Migration `010_worker_session_immediate_revocation.sql` makes the worker context, operation-claim RPC, and worker-only RLS policies re-check the JWT `session_id` against the matching non-revoked `worker_sessions` row. Revoking a worker session therefore stops database access before the JWT expires.
+Migration `010_worker_session_immediate_revocation.sql` was applied to the connected Supabase project on 2026-11-16 as version `20261116144654`. It makes the worker context, operation-claim RPC, and worker-only RLS policies re-check the JWT `session_id` against the matching non-revoked `worker_sessions` row. A transactional live SQL check confirmed that a matching active session is accepted, a different session is rejected, and revocation invalidates the still-unexpired JWT.
 
 The queue endpoint remains fail-closed with HTTP 409 until a trusted control-plane provisioner creates a dedicated Auth session and stores its tokens in AWS Secrets Manager. Do not restore the old self-registration route from the unmerged BullMQ draft; authenticated users have SELECT-only access to `worker_sessions`.
 ### Verification
