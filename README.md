@@ -139,5 +139,6 @@ environment variables are provided:
 - `WORKER_RLS_USER_B_JWT`
 
 The two RLS identities must be different users with active worker sessions.
-Never use a service-role key. The integration tests create minimal
-tenant-scoped `worker_operations` records and do not delete production data.
+Never use a service-role key. Run these tests only against an isolated non-production
+Supabase project: they create minimal tenant-scoped `worker_operations` records
+and intentionally do not delete rows from the database.
