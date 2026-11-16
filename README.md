@@ -69,6 +69,13 @@ Before running workers, configure Supabase Auth → Hooks → Custom Access Toke
 
 Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. No service-role key is used by browser code or queue payloads.
 
+### Worker queue ingress and revocation
+
+`POST /api/worker/queue` accepts only queue-specific input. The authenticated user ID, operation ID, idempotency key, and opaque token-vault reference are derived server-side. Before enqueueing, the route checks that the signed-in user owns each referenced job, resume, or application and has an active worker-session record. It never creates or updates `worker_sessions`.
+
+Migration `010_worker_session_immediate_revocation.sql` makes the worker context, operation-claim RPC, and worker-only RLS policies re-check the JWT `session_id` against the matching non-revoked `worker_sessions` row. Revoking a worker session therefore stops database access before the JWT expires.
+
+The queue endpoint remains fail-closed with HTTP 409 until a trusted control-plane provisioner creates a dedicated Auth session and stores its tokens in AWS Secrets Manager. Do not restore the old self-registration route from the unmerged BullMQ draft; authenticated users have SELECT-only access to `worker_sessions`.
 ### Verification
 
 Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database checks, use `npx supabase test db` only after the local migration history is reconciled with the timestamped migrations recorded by the connected project. The repository's original `001`–`004` filenames do not yet mirror the remote timestamp versions, so do not run `supabase db push` blindly.
