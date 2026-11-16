@@ -4,6 +4,7 @@ import {
   hasJsonContentType,
   hasMultipartFormDataContentType,
   isSameOriginMutation,
+  readJsonBodyLimited,
 } from "./request-guards";
 
 afterEach(() => {
@@ -48,5 +49,37 @@ describe("request guards", () => {
     expect(hasMultipartFormDataContentType(multipart)).toBe(true);
     expect(contentLengthExceeds(json, 10)).toBe(true);
     expect(contentLengthExceeds(multipart, 10)).toBe(false);
+  });
+
+  it("parses valid JSON from a streamed request body", async () => {
+    const request = new Request("https://app.example/api", {
+      method: "POST",
+      body: JSON.stringify({ queue: "scraper-queue" }),
+    });
+
+    await expect(readJsonBodyLimited(request, 128)).resolves.toEqual({
+      ok: true,
+      value: { queue: "scraper-queue" },
+    });
+  });
+
+  it("rejects malformed JSON and oversized chunked bodies", async () => {
+    const malformed = new Request("https://app.example/api", {
+      method: "POST",
+      body: "{not-json",
+    });
+    const oversized = new Request("https://app.example/api", {
+      method: "POST",
+      body: "x".repeat(128),
+    });
+
+    await expect(readJsonBodyLimited(malformed, 256)).resolves.toEqual({
+      ok: false,
+      reason: "invalid_json",
+    });
+    await expect(readJsonBodyLimited(oversized, 32)).resolves.toEqual({
+      ok: false,
+      reason: "too_large",
+    });
   });
 });
