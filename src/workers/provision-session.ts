@@ -300,10 +300,13 @@ async function main(): Promise<void> {
     throw new Error("WORKER_PROVISIONING_FAILED_ROLLED_BACK");
   } finally {
     try {
-      await service.rpc("release_worker_provisioning_lock", {
+      const { error: releaseError } = await service.rpc("release_worker_provisioning_lock", {
         p_user_id: userId,
         p_lock_token: lockToken,
       });
+      if (releaseError) {
+        console.warn(JSON.stringify({ event: "worker_provisioning_lock_release_deferred" }));
+      }
     } catch {
       console.warn(JSON.stringify({ event: "worker_provisioning_lock_release_deferred" }));
     }
