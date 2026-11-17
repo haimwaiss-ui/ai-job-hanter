@@ -94,16 +94,14 @@ async function main(): Promise<void> {
   if (refreshError || !refreshed.session || refreshed.user?.id !== envSchema.WORKER_USER_ID) {
     await supabase.from("worker_sessions")
       .update({ revoked_at: new Date().toISOString() })
-      .eq("user_id", envSchema.WORKER_USER_ID)
-      .eq("auth_session_id", authSessionId);
+      .eq("user_id", envSchema.WORKER_USER_ID);
     throw new Error("Unable to refresh dedicated worker session");
   }
 
   if (extractAuthSessionId(refreshed.session.access_token) !== authSessionId) {
     await supabase.from("worker_sessions")
       .update({ revoked_at: new Date().toISOString() })
-      .eq("user_id", envSchema.WORKER_USER_ID)
-      .eq("auth_session_id", authSessionId);
+      .eq("user_id", envSchema.WORKER_USER_ID);
     throw new Error("Worker Auth session changed during provisioning");
   }
 
@@ -111,8 +109,7 @@ async function main(): Promise<void> {
   if (claims.sub !== envSchema.WORKER_USER_ID || claims.worker !== true) {
     await supabase.from("worker_sessions")
       .update({ revoked_at: new Date().toISOString() })
-      .eq("user_id", envSchema.WORKER_USER_ID)
-      .eq("auth_session_id", authSessionId);
+      .eq("user_id", envSchema.WORKER_USER_ID);
     throw new Error("Supabase worker Auth Hook is not enabled or did not issue the worker claim");
   }
 
@@ -145,8 +142,7 @@ async function main(): Promise<void> {
   } catch {
     await supabase.from("worker_sessions")
       .update({ revoked_at: new Date().toISOString() })
-      .eq("user_id", envSchema.WORKER_USER_ID)
-      .eq("auth_session_id", authSessionId);
+      .eq("user_id", envSchema.WORKER_USER_ID);
     throw new Error("Unable to persist worker token-vault secret");
   }
 
