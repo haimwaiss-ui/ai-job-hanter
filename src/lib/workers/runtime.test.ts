@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_JOB_OPTIONS } from "@/lib/queues/queues";
-import { closeWorkerResources } from "./runtime";
+import { closeWorkerResources, isTerminalWorkerFailure } from "./runtime";
 
 describe("worker runtime controls", () => {
   it("uses bounded exponential retries with jitter", () => {
@@ -10,6 +10,23 @@ describe("worker runtime controls", () => {
       delay: 2_000,
       jitter: 0.5,
     });
+  });
+
+  it("treats stalled-limit failures as terminal before the retry budget is consumed", () => {
+    expect(isTerminalWorkerFailure({
+      attemptsMade: 1,
+      configuredAttempts: 5,
+      failedReason: "job stalled more than allowable limit",
+    })).toBe(true);
+    expect(isTerminalWorkerFailure({
+      attemptsMade: 2,
+      configuredAttempts: 5,
+      failedReason: "temporary provider error",
+    })).toBe(false);
+    expect(isTerminalWorkerFailure({
+      attemptsMade: 5,
+      configuredAttempts: 5,
+    })).toBe(true);
   });
 
   it("closes workers, dead-letter queue, and Redis during graceful shutdown", async () => {
