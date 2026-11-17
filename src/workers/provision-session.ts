@@ -243,6 +243,7 @@ async function main(): Promise<void> {
     await assertWorkerTenant(
       createTenantWorkerClient(refreshed.session.access_token),
       userId,
+      refreshed.session.access_token,
     );
 
     if (previousSession && previousSession.token_vault_ref !== vaultRef) {
