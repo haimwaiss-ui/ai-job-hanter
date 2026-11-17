@@ -7,6 +7,39 @@ create schema if not exists private;
 revoke all on schema private from public, anon, authenticated;
 grant usage on schema private to authenticated;
 
+-- Permit a user-scoped dedicated Auth session to register/rotate only its own
+-- worker session. The Auth session_id is taken from the verified JWT by RLS;
+-- it cannot be supplied for another session or another user.
+revoke all privileges on table public.worker_sessions from anon, authenticated;
+revoke insert (user_id, token_vault_ref, auth_session_id, revoked_at, updated_at)
+  on public.worker_sessions from anon, authenticated;
+revoke update (token_vault_ref, auth_session_id, revoked_at, updated_at)
+  on public.worker_sessions from anon, authenticated;
+
+grant select (user_id, token_vault_ref, revoked_at)
+  on public.worker_sessions to authenticated;
+grant insert (user_id, token_vault_ref, auth_session_id, revoked_at, updated_at)
+  on public.worker_sessions to authenticated;
+grant update (token_vault_ref, auth_session_id, revoked_at, updated_at)
+  on public.worker_sessions to authenticated;
+
+drop policy if exists worker_sessions_insert_own_session on public.worker_sessions;
+create policy worker_sessions_insert_own_session
+  on public.worker_sessions for insert to authenticated
+  with check (
+    user_id = (select auth.uid())
+    and auth_session_id::text = nullif((select auth.jwt() ->> 'session_id'), '')
+  );
+
+drop policy if exists worker_sessions_update_own_session on public.worker_sessions;
+create policy worker_sessions_update_own_session
+  on public.worker_sessions for update to authenticated
+  using (user_id = (select auth.uid()))
+  with check (
+    user_id = (select auth.uid())
+    and auth_session_id::text = nullif((select auth.jwt() ->> 'session_id'), '')
+  );
+
 create or replace function private.is_active_worker_session()
 returns boolean
 language sql
@@ -161,6 +194,9 @@ create policy applications_update_worker
   );
 
 drop function if exists public.is_active_worker_session();
+
+comment on table public.worker_sessions is
+  'One dedicated Auth session per user. Registration is user-scoped and RLS-bound to the JWT session_id; only an opaque AWS vault reference is stored.';
 
 comment on schema private is
   'Non-exposed implementation helpers used by RLS policies and invoker functions.';
