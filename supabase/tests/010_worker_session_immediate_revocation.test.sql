@@ -1,5 +1,5 @@
 begin;
-select plan(14);
+select plan(17);
 
 insert into auth.users (id, email)
 values (
@@ -64,6 +64,22 @@ select ok(
 select ok(
   to_regprocedure('public.is_active_worker_session()') is null,
   'legacy public helper is no longer exposed'
+);
+select ok(
+  has_column_privilege('authenticated', 'public.worker_sessions', 'auth_session_id', 'INSERT'),
+  'authenticated may insert only through the session-bound RLS policy'
+);
+select ok(
+  (select pg_get_expr(polwithcheck, polrelid) ilike '%auth_session_id%'
+   and pg_get_expr(polwithcheck, polrelid) ilike '%auth.uid%'
+   from pg_policy where polname = 'worker_sessions_insert_own_session'),
+  'worker session inserts are bound to the caller and JWT session id'
+);
+select ok(
+  (select pg_get_expr(polqual, polrelid) ilike '%auth.uid%'
+   and pg_get_expr(polwithcheck, polrelid) ilike '%auth_session_id%'
+   from pg_policy where polname = 'worker_sessions_update_own_session'),
+  'worker session updates are limited to the caller current session'
 );
 select ok(
   has_function_privilege('authenticated', 'private.is_active_worker_session()', 'EXECUTE'),
