@@ -118,6 +118,24 @@ worker-session predicate from the exposed `public` schema into the non-exposed
 the recorded remote migration history. Do not add `private` to Supabase's
 Exposed schemas; the RLS policies and the invoker RPC call the helper internally.
 
+Migration 011 also adds column-limited INSERT/UPDATE grants for `worker_sessions`.
+RLS permits only the owner to register or rotate a row, and the row's
+`auth_session_id` must match that request's signed JWT session. DELETE remains
+revoked. The local provisioner signs in through a fresh email OTP session, then
+stores the refreshed tokens and matching session ID in AWS Secrets Manager.
+
+Run the provisioner only from a trusted local terminal after configuring
+`WORKER_USER_ID`, `WORKER_EMAIL`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `AWS_REGION`, and
+`TOKEN_VAULT_SECRET_PREFIX`:
+
+```bash
+npx tsx scripts/provision-worker-session.ts
+```
+
+The script prompts for the one-time email code. Never use the browser's
+existing session or place the code/tokens in Vercel or Redis.
+
 The worker test suite includes strict payload/credential rejection,
 tenant-identity assertions, deterministic deduplication keys, bounded retry
 configuration, graceful worker-resource shutdown, and CAPTCHA-to-Manual-Assist
