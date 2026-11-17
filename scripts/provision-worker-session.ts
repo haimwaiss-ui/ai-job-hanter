@@ -5,6 +5,7 @@ import {
 } from "@aws-sdk/client-secrets-manager";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
+import { createInterface } from "node:readline/promises";
 import { z } from "zod";
 import { buildVaultSessionSecret, extractAuthSessionId } from "@/lib/workers/token-vault";
 
@@ -14,8 +15,7 @@ const envSchema = z.object({
   AWS_REGION: z.string().min(1),
   TOKEN_VAULT_SECRET_PREFIX: z.string().min(1),
   WORKER_USER_ID: z.string().uuid(),
-  WORKER_ACCESS_TOKEN: z.string().min(40),
-  WORKER_REFRESH_TOKEN: z.string().min(40),
+  WORKER_EMAIL: z.string().email(),
 }).parse(process.env);
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
@@ -30,16 +30,39 @@ async function main(): Promise<void> {
     envSchema.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-      global: { headers: { Authorization: "Bearer " + envSchema.WORKER_ACCESS_TOKEN } },
     },
   );
 
-  const { data: authData, error: authError } = await supabase.auth.getUser(envSchema.WORKER_ACCESS_TOKEN);
-  if (authError || !authData.user || authData.user.id !== envSchema.WORKER_USER_ID) {
-    throw new Error("Worker token does not match the requested user");
+  const { error: otpError } = await supabase.auth.signInWithOtp({
+    email: envSchema.WORKER_EMAIL,
+    options: { shouldCreateUser: false },
+  });
+  if (otpError) throw new Error("Unable to start dedicated worker email sign-in");
+
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  let otpCode: string;
+  try {
+    otpCode = (await prompt.question("Enter the email verification code for the dedicated worker session: ")).trim();
+  } finally {
+    prompt.close();
+  }
+  if (!/^\\d{4,12}$/.test(otpCode)) throw new Error("Invalid worker email verification code");
+
+  const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({
+    email: envSchema.WORKER_EMAIL,
+    token: otpCode,
+    type: "email",
+  });
+  if (verifyError || !verified.session || verified.user?.id !== envSchema.WORKER_USER_ID) {
+    throw new Error("Dedicated worker sign-in did not match the requested user");
   }
 
-  const authSessionId = extractAuthSessionId(envSchema.WORKER_ACCESS_TOKEN);
+  const initialSession = verified.session;
+  const authSessionId = extractAuthSessionId(initialSession.access_token);
+  const { data: authData, error: authError } = await supabase.auth.getUser(initialSession.access_token);
+  if (authError || !authData.user || authData.user.id !== envSchema.WORKER_USER_ID) {
+    throw new Error("Dedicated worker session identity could not be verified");
+  }
 
   const { data: existing, error: existingError } = await supabase
     .from("worker_sessions")
@@ -65,7 +88,7 @@ async function main(): Promise<void> {
   // worker claim to this dedicated session. Never use the browser's live
   // refresh token here; provision a separate Supabase Auth session.
   const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession({
-    refresh_token: envSchema.WORKER_REFRESH_TOKEN,
+    refresh_token: initialSession.refresh_token,
   });
 
   if (refreshError || !refreshed.session || refreshed.user?.id !== envSchema.WORKER_USER_ID) {
