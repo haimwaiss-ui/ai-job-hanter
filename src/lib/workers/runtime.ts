@@ -215,6 +215,8 @@ export function isTerminalWorkerFailure(input: {
     /stalled more than allowable limit/i.test(input.failedReason ?? "");
 }
 
+const pendingTerminalWrites = new WeakMap<object, Set<Promise<void>>>();
+
 function createTypedWorker<P extends WorkerPayload>(
   queueName: WorkerQueueName,
   schema: ZodType<P>,
@@ -448,33 +450,44 @@ function createTypedWorker<P extends WorkerPayload>(
       failedReason: job.failedReason,
     })) {
       const safe = toSafeWorkerError({ code: stalledTerminal ? "JOB_STALLED" : "WORKER_FAILED" });
-      void publishDeadLetter(
-        dependencies.deadLetterQueue,
-        queueName,
-        job as Job<WorkerPayload>,
-        payload,
-        safe.code,
-      ).catch(() => {
-        dependencies.logger.error("dead_letter_publish_failed", {
-          queueName,
-          jobId: job.id ?? null,
-          userId: payload.userId,
-        });
-      });
-      void recordTerminalFailureIfNeeded(
-        dependencies.tokenVault,
-        queueName,
-        payload,
-        safe.code,
-      ).catch(() => {
-        dependencies.logger.error("terminal_failure_record_failed", {
-          queueName,
-          jobId: job.id ?? null,
-          userId: payload.userId,
-        });
-      });
+      const pending = (async () => {
+        try {
+          await publishDeadLetter(
+            dependencies.deadLetterQueue,
+            queueName,
+            job as Job<WorkerPayload>,
+            payload,
+            safe.code,
+          );
+        } catch {
+          dependencies.logger.error("dead_letter_publish_failed", {
+            queueName,
+            jobId: job.id ?? null,
+            userId: payload.userId,
+          });
+        }
+        try {
+          await recordTerminalFailureIfNeeded(
+            dependencies.tokenVault,
+            queueName,
+            payload,
+            safe.code,
+          );
+        } catch {
+          dependencies.logger.error("terminal_failure_record_failed", {
+            queueName,
+            jobId: job.id ?? null,
+            userId: payload.userId,
+          });
+        }
+      })();
+      const pendingSet = pendingTerminalWrites.get(worker);
+      pendingSet?.add(pending);
+      void pending.finally(() => pendingSet?.delete(pending));
     }
   });
+
+  pendingTerminalWrites.set(worker, new Set());
 
   worker.on("error", () => {
     dependencies.logger.error("worker_runtime_error", { queueName });
@@ -544,16 +557,23 @@ export async function closeWorkerResources(
   deadLetterQueue: { close: () => Promise<void> },
   connection: IORedis,
 ): Promise<void> {
-  const results = await Promise.allSettled([
-    ...workers.map((worker) => worker.close()),
-    deadLetterQueue.close(),
-  ]);
+  // Stop workers first. Their final "failed" events may still need to write
+  // the dead-letter record and tenant-scoped terminal failure before Redis closes.
+  const workerResults = await Promise.allSettled(
+    workers.map((worker) => worker.close()),
+  );
+  const pendingWrites = workers.flatMap((worker) =>
+    Array.from(pendingTerminalWrites.get(worker as object) ?? []),
+  );
+  const pendingResults = await Promise.allSettled(pendingWrites);
+  const queueResults = await Promise.allSettled([deadLetterQueue.close()]);
 
   if (connection.status !== "end") {
     await connection.quit();
   }
 
-  if (results.some((result) => result.status === "rejected")) {
+  if ([...workerResults, ...pendingResults, ...queueResults]
+    .some((result) => result.status === "rejected")) {
     throw new Error("One or more worker resources did not close cleanly");
   }
 }
