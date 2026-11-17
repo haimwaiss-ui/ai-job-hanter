@@ -30,7 +30,14 @@ export function extractAuthSessionId(accessToken: string): string {
   }
 }
 
-type VaultSession = z.infer<typeof vaultSessionSchema>;
+export type WorkerVaultSession = z.infer<typeof vaultSessionSchema>;
+
+export function buildVaultSessionSecret(
+  input: Omit<WorkerVaultSession, "sessionId">,
+): WorkerVaultSession {
+  const sessionId = extractAuthSessionId(input.accessToken);
+  return vaultSessionSchema.parse({ ...input, sessionId });
+}
 
 export interface UserTokenVault {
   withAccessToken<T>(
@@ -80,7 +87,7 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
     const secretId = this.secretId(userId, tokenVaultRef);
     let session = await this.read(secretId, userId);
     if (session.expiresAt <= Date.now() + 90_000) {
-      session = await this.refreshUnderLock(secretId, userId, tokenVaultRef, session);
+      session = await this.refreshUnderLock(secretId, userId, tokenVaultRef);
     }
 
     // The token is passed only in memory to a user-scoped Supabase client.
@@ -92,7 +99,7 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
     return this.prefix + "/" + userId + "/" + tokenVaultRef;
   }
 
-  private async read(secretId: string, expectedUserId: string): Promise<VaultSession> {
+  private async read(secretId: string, expectedUserId: string): Promise<WorkerVaultSession> {
     try {
       const result = await this.secrets.send(new GetSecretValueCommand({ SecretId: secretId }));
       if (!result.SecretString) throw new Error("Missing secret value");
@@ -114,8 +121,7 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
     secretId: string,
     userId: string,
     tokenVaultRef: string,
-    initial: VaultSession,
-  ): Promise<VaultSession> {
+  ): Promise<WorkerVaultSession> {
     const lockKey = "worker:vault-refresh:" + createHash("sha256")
       .update(userId + ":" + tokenVaultRef)
       .digest("hex");
