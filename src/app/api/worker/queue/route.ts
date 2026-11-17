@@ -60,14 +60,14 @@ export async function POST(request: Request) {
   const userId = authData.user.id;
   const { data: workerSession, error: workerSessionError } = await supabase
     .from("worker_sessions")
-    .select("token_vault_ref,revoked_at")
+    .select("token_vault_ref,revoked_at,provisioned_at")
     .eq("user_id", userId)
     .maybeSingle();
 
   if (workerSessionError) {
     return NextResponse.json({ error: "Worker session status is unavailable" }, { status: 503 });
   }
-  if (!workerSession || workerSession.revoked_at) {
+  if (!workerSession || workerSession.revoked_at || !workerSession.provisioned_at) {
     return NextResponse.json({ error: "Background processing is not enabled for this account" }, { status: 409 });
   }
 
