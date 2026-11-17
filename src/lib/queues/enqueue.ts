@@ -8,7 +8,7 @@ import type {
 } from "./contracts";
 import type { QueueSet } from "./queues";
 import { QUEUE_NAMES } from "./queues";
-import { createBullJobId, createIdempotencyKey } from "@/lib/workers/idempotency";
+import { createBullJobId, createIdempotencyKey } from "@/lib/queues/producer";
 
 type DbClient = SupabaseClient<Database>;
 
@@ -58,7 +58,7 @@ export async function enqueueScrape(
   } satisfies ScraperQueuePayload;
 
   return queues.scraper.add("scrape", payload, {
-    jobId: createBullJobId(QUEUE_NAMES.scraper, key),
+    jobId: createBullJobId(key),
   });
 }
 
@@ -87,7 +87,7 @@ export async function enqueueAiProcessing(
   } satisfies AiProcessingQueuePayload;
 
   return queues.aiProcessing.add("process-ai", payload, {
-    jobId: createBullJobId(QUEUE_NAMES.aiProcessing, key),
+    jobId: createBullJobId(key),
   });
 }
 
@@ -126,6 +126,6 @@ export async function enqueueSubmission(
   } satisfies SubmissionQueuePayload;
 
   return queues.submission.add("submit", payload, {
-    jobId: createBullJobId(QUEUE_NAMES.submission, key),
+    jobId: createBullJobId(key),
   });
 }
