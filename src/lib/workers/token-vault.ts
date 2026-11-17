@@ -16,7 +16,7 @@ const vaultSessionSchema = z.object({
   expiresAt: z.number().int().positive(),
 }).strict();
 
-/** Read only the signed JWT claim needed to bind a worker vault secret to one Auth session. */
+/** Decode session_id for vault binding; Supabase Auth getUser() and RLS verify the token. */
 export function extractAuthSessionId(accessToken: string): string {
   const parts = accessToken.split(".");
   if (parts.length !== 3) throw new Error("Invalid worker access token");
