@@ -163,7 +163,7 @@ async function recordTerminalFailureIfNeeded(
 ): Promise<void> {
   await tokenVault.withAccessToken(payload.tokenVaultRef, payload.userId, async (accessToken) => {
     const supabase = createTenantWorkerClient(accessToken);
-    await assertWorkerTenant(supabase, payload.userId);
+    await assertWorkerTenant(supabase, payload.userId, accessToken);
 
     const { data: operation, error: readError } = await supabase
       .from("worker_operations")
@@ -238,7 +238,7 @@ function createTypedWorker<P extends WorkerPayload>(
       payload.userId,
       async (accessToken) => {
         const supabase = createTenantWorkerClient(accessToken);
-        await assertWorkerTenant(supabase, payload.userId);
+        await assertWorkerTenant(supabase, payload.userId, accessToken);
 
         const { data: claimed, error: claimError } = await supabase.rpc("claim_worker_operation", {
           p_queue_name: queueName,
