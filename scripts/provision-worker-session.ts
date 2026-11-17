@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   } finally {
     prompt.close();
   }
-  if (!/^\\d{4,12}$/.test(otpCode)) throw new Error("Invalid worker email verification code");
+  if (!/^\d{4,12}$/.test(otpCode)) throw new Error("Invalid worker email verification code");
 
   const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({
     email: envSchema.WORKER_EMAIL,
