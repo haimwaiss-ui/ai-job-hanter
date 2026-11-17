@@ -81,7 +81,13 @@ async function main(): Promise<void> {
     throw new Error("EXPLICIT_CONFIRMATION_REQUIRED");
   }
 
-  const env = environmentSchema.parse(process.env);
+  const env = environmentSchema.parse({
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    AWS_REGION: process.env.AWS_REGION,
+    TOKEN_VAULT_SECRET_PREFIX: process.env.TOKEN_VAULT_SECRET_PREFIX,
+  });
   const input = workerProvisioningInputSchema.parse(
     JSON.parse(await readStdin(24 * 1024)) as unknown,
   );
@@ -129,14 +135,9 @@ async function main(): Promise<void> {
     throw new Error("WORKER_PROVISIONING_LOCK_UNAVAILABLE");
   }
 
-  const secrets = new SecretsManagerClient({ region: env.AWS_REGION });
+  let secrets: SecretsManagerClient | undefined;
   const vaultRef = randomUUID();
   const secretId = env.TOKEN_VAULT_SECRET_PREFIX + "/" + userId + "/" + vaultRef;
-  const workerAuth = createClient<Database>(
-    env.SUPABASE_URL,
-    env.SUPABASE_ANON_KEY,
-    authOptions(),
-  );
 
   let previousSession: Database["public"]["Tables"]["worker_sessions"]["Row"] | null = null;
   let sessionRowChanged = false;
@@ -144,9 +145,16 @@ async function main(): Promise<void> {
   let workerTokenToRevoke = input.workerAccessToken;
 
   try {
+    secrets = new SecretsManagerClient({ region: env.AWS_REGION });
+    const workerAuth = createClient<Database>(
+      env.SUPABASE_URL,
+      env.SUPABASE_ANON_KEY,
+      authOptions(),
+    );
+
     const { data: previous, error: previousError } = await service
       .from("worker_sessions")
-      .select("user_id,token_vault_ref,auth_session_id,revoked_at,created_at,updated_at")
+      .select("user_id,token_vault_ref,auth_session_id,revoked_at,provisioned_at,created_at,updated_at")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -177,6 +185,7 @@ async function main(): Promise<void> {
       token_vault_ref: vaultRef,
       auth_session_id: workerSessionId,
       revoked_at: null,
+      provisioned_at: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" });
     if (upsertError) throw new Error("WORKER_SESSION_WRITE_FAILED");
@@ -200,11 +209,6 @@ async function main(): Promise<void> {
       throw new Error("CUSTOM_ACCESS_TOKEN_HOOK_NOT_ACTIVE");
     }
 
-    await assertWorkerTenant(
-      createTenantWorkerClient(refreshed.session.access_token),
-      userId,
-    );
-
     const finalSecret: VaultSecret = vaultSecretSchema.parse({
       userId,
       sessionId: workerSessionId,
@@ -213,10 +217,33 @@ async function main(): Promise<void> {
       expiresAt: (refreshed.session.expires_at ?? refreshedClaims.exp) * 1000,
     });
 
+    // Store the rotated credentials before marking the row usable by workers.
     await secrets.send(new PutSecretValueCommand({
       SecretId: secretId,
       SecretString: JSON.stringify(finalSecret),
     }));
+
+    const { data: activated, error: activationError } = await service
+      .from("worker_sessions")
+      .update({
+        provisioned_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .eq("auth_session_id", workerSessionId)
+      .eq("token_vault_ref", vaultRef)
+      .is("revoked_at", null)
+      .select("user_id")
+      .maybeSingle();
+
+    if (activationError || !activated) {
+      throw new Error("WORKER_SESSION_ACTIVATION_FAILED");
+    }
+
+    await assertWorkerTenant(
+      createTenantWorkerClient(refreshed.session.access_token),
+      userId,
+    );
 
     if (previousSession && previousSession.token_vault_ref !== vaultRef) {
       const oldSecretId = env.TOKEN_VAULT_SECRET_PREFIX + "/" +
@@ -236,20 +263,32 @@ async function main(): Promise<void> {
     }));
   } catch {
     if (sessionRowChanged) {
-      if (previousSession) {
-        await service.from("worker_sessions")
-          .upsert(previousSession, { onConflict: "user_id" })
-          .catch(() => ({ error: new Error("ROLLBACK_FAILED") }));
-      } else {
-        await service.from("worker_sessions")
-          .delete()
-          .eq("user_id", userId)
-          .eq("auth_session_id", workerSessionId)
-          .catch(() => ({ error: new Error("ROLLBACK_FAILED") }));
+      try {
+        const rollback = previousSession
+          ? await service.from("worker_sessions")
+              .upsert(previousSession, { onConflict: "user_id" })
+          : await service.from("worker_sessions")
+              .delete()
+              .eq("user_id", userId)
+              .eq("auth_session_id", workerSessionId);
+
+        if (rollback.error) {
+          await service.from("worker_sessions")
+            .update({
+              revoked_at: new Date().toISOString(),
+              provisioned_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("user_id", userId)
+            .eq("auth_session_id", workerSessionId);
+          console.error(JSON.stringify({ event: "worker_session_rollback_failed_closed" }));
+        }
+      } catch {
+        console.error(JSON.stringify({ event: "worker_session_rollback_failed_closed" }));
       }
     }
 
-    if (secretCreated) {
+    if (secrets && secretCreated) {
       await secrets.send(new DeleteSecretCommand({
         SecretId: secretId,
         ForceDeleteWithoutRecovery: true,
@@ -259,11 +298,15 @@ async function main(): Promise<void> {
     await revokeLocalSession(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, workerTokenToRevoke);
     throw new Error("WORKER_PROVISIONING_FAILED_ROLLED_BACK");
   } finally {
-    await service.rpc("release_worker_provisioning_lock", {
-      p_user_id: userId,
-      p_lock_token: lockToken,
-    }).catch(() => undefined);
-    secrets.destroy();
+    try {
+      await service.rpc("release_worker_provisioning_lock", {
+        p_user_id: userId,
+        p_lock_token: lockToken,
+      });
+    } catch {
+      console.warn(JSON.stringify({ event: "worker_provisioning_lock_release_deferred" }));
+    }
+    secrets?.destroy();
   }
 }
 
