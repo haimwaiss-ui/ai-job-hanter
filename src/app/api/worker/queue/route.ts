@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     switch (parsed.data.queue) {
       case "scraper-queue": {
         const input = parsed.data.payload;
-        const idempotencyKey = createIdempotencyKey("scraper-queue", userId, input.runKey);
+        const idempotencyKey = createIdempotencyKey("scraper-queue", userId, "run:" + input.runKey + ":" + input.source + ":" + input.searchProfileVersion);
         const payload = scraperQueuePayloadSchema.parse({
           ...input,
           userId,
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
         const idempotencyKey = createIdempotencyKey(
           "ai-processing-queue",
           userId,
-          [input.jobId, input.resumeId, input.mode, input.modelVersion].join(":"),
+          "job:" + input.jobId + ":resume:" + input.resumeId + ":" + input.mode + ":" + input.modelVersion,
         );
         const payload = aiProcessingQueuePayloadSchema.parse({
           ...input,
@@ -159,7 +159,7 @@ export async function POST(request: Request) {
         const idempotencyKey = createIdempotencyKey(
           "submission-queue",
           userId,
-          input.applicationId + ":submit:v1",
+          "application:" + input.applicationId + ":submit:v1",
         );
         const payload = submissionQueuePayloadSchema.parse({
           ...input,
