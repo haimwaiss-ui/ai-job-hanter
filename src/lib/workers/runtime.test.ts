@@ -30,12 +30,13 @@ describe("worker runtime controls", () => {
   });
 
   it("closes workers, dead-letter queue, and Redis during graceful shutdown", async () => {
-    const workerA = { close: vi.fn().mockResolvedValue(undefined) };
-    const workerB = { close: vi.fn().mockResolvedValue(undefined) };
-    const deadLetterQueue = { close: vi.fn().mockResolvedValue(undefined) };
+    const order: string[] = [];
+    const workerA = { close: vi.fn().mockImplementation(async () => { order.push("worker-a"); }) };
+    const workerB = { close: vi.fn().mockImplementation(async () => { order.push("worker-b"); }) };
+    const deadLetterQueue = { close: vi.fn().mockImplementation(async () => { order.push("dead-letter"); }) };
     const connection = {
       status: "ready",
-      quit: vi.fn().mockResolvedValue(undefined),
+      quit: vi.fn().mockImplementation(async () => { order.push("redis"); }),
     };
 
     await closeWorkerResources(
@@ -48,5 +49,6 @@ describe("worker runtime controls", () => {
     expect(workerB.close).toHaveBeenCalledOnce();
     expect(deadLetterQueue.close).toHaveBeenCalledOnce();
     expect(connection.quit).toHaveBeenCalledOnce();
+    expect(order).toEqual(["worker-a", "worker-b", "dead-letter", "redis"]);
   });
 });
