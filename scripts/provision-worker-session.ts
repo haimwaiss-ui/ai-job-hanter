@@ -6,6 +6,7 @@ import {
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { buildVaultSessionSecret, extractAuthSessionId } from "@/lib/workers/token-vault";
 
 const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
@@ -38,11 +39,14 @@ async function main(): Promise<void> {
     throw new Error("Worker token does not match the requested user");
   }
 
-  const { data: existing } = await supabase
+  const authSessionId = extractAuthSessionId(envSchema.WORKER_ACCESS_TOKEN);
+
+  const { data: existing, error: existingError } = await supabase
     .from("worker_sessions")
     .select("token_vault_ref")
     .eq("user_id", envSchema.WORKER_USER_ID)
     .maybeSingle();
+  if (existingError) throw new Error("Unable to read existing worker session");
 
   const tokenVaultRef = existing?.token_vault_ref ?? randomUUID();
   const { error: registerError } = await supabase
@@ -50,6 +54,7 @@ async function main(): Promise<void> {
     .upsert({
       user_id: envSchema.WORKER_USER_ID,
       token_vault_ref: tokenVaultRef,
+      auth_session_id: authSessionId,
       revoked_at: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" });
@@ -66,47 +71,60 @@ async function main(): Promise<void> {
   if (refreshError || !refreshed.session || refreshed.user?.id !== envSchema.WORKER_USER_ID) {
     await supabase.from("worker_sessions")
       .update({ revoked_at: new Date().toISOString() })
-      .eq("user_id", envSchema.WORKER_USER_ID);
+      .eq("user_id", envSchema.WORKER_USER_ID)
+      .eq("auth_session_id", authSessionId);
     throw new Error("Unable to refresh dedicated worker session");
+  }
+
+  if (extractAuthSessionId(refreshed.session.access_token) !== authSessionId) {
+    await supabase.from("worker_sessions")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", envSchema.WORKER_USER_ID)
+      .eq("auth_session_id", authSessionId);
+    throw new Error("Worker Auth session changed during provisioning");
   }
 
   const claims = decodeJwtPayload(refreshed.session.access_token);
   if (claims.sub !== envSchema.WORKER_USER_ID || claims.worker !== true) {
     await supabase.from("worker_sessions")
       .update({ revoked_at: new Date().toISOString() })
-      .eq("user_id", envSchema.WORKER_USER_ID);
+      .eq("user_id", envSchema.WORKER_USER_ID)
+      .eq("auth_session_id", authSessionId);
     throw new Error("Supabase worker Auth Hook is not enabled or did not issue the worker claim");
   }
 
   const secretId = envSchema.TOKEN_VAULT_SECRET_PREFIX.replace(/\/+$/, "") +
     "/" + envSchema.WORKER_USER_ID + "/" + tokenVaultRef;
-  const secretValue = JSON.stringify({
+  const secretValue = JSON.stringify(buildVaultSessionSecret({
     userId: envSchema.WORKER_USER_ID,
     accessToken: refreshed.session.access_token,
     refreshToken: refreshed.session.refresh_token,
     expiresAt: (refreshed.session.expires_at ?? Math.floor(Date.now() / 1000) + 3600) * 1000,
-  });
+  }));
 
   const secrets = new SecretsManagerClient({ region: envSchema.AWS_REGION });
   try {
-    await secrets.send(new CreateSecretCommand({
-      Name: secretId,
-      SecretString: secretValue,
-      ...(process.env.TOKEN_VAULT_KMS_KEY_ID
-        ? { KmsKeyId: process.env.TOKEN_VAULT_KMS_KEY_ID }
-        : {}),
-    }));
-  } catch (error) {
-    if ((error as { name?: string }).name !== "ResourceExistsException") {
-      await supabase.from("worker_sessions")
-        .update({ revoked_at: new Date().toISOString() })
-        .eq("user_id", envSchema.WORKER_USER_ID);
-      throw new Error("Unable to create token-vault secret");
+    try {
+      await secrets.send(new CreateSecretCommand({
+        Name: secretId,
+        SecretString: secretValue,
+        ...(process.env.TOKEN_VAULT_KMS_KEY_ID
+          ? { KmsKeyId: process.env.TOKEN_VAULT_KMS_KEY_ID }
+          : {}),
+      }));
+    } catch (error) {
+      if ((error as { name?: string }).name !== "ResourceExistsException") throw error;
+      await secrets.send(new PutSecretValueCommand({
+        SecretId: secretId,
+        SecretString: secretValue,
+      }));
     }
-    await secrets.send(new PutSecretValueCommand({
-      SecretId: secretId,
-      SecretString: secretValue,
-    }));
+  } catch {
+    await supabase.from("worker_sessions")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("user_id", envSchema.WORKER_USER_ID)
+      .eq("auth_session_id", authSessionId);
+    throw new Error("Unable to persist worker token-vault secret");
   }
 
   console.info(JSON.stringify({
