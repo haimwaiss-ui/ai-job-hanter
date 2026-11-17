@@ -65,9 +65,9 @@ The broad table ACLs for `anon` and `authenticated` were revoked. Authenticated 
 
 The worker migration creates `worker_sessions`, `worker_operations`, `worker_current_context()`, `claim_worker_operation()`, and `custom_access_token_hook(event jsonb)`. `worker_sessions` is not self-service: authenticated users can read only their own opaque vault reference and cannot insert, update, or delete worker-session rows. The access-token hook binds the `worker` claim to a dedicated `auth_session_id`; do not register a user's normal browser session as a worker session.
 
-Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. A trusted server-side provisioning flow must create a separate Auth session, store its access/refresh tokens plus `sessionId` in AWS Secrets Manager, and insert the matching `worker_sessions` row. That provisioning flow is not implemented yet. The BullMQ runtime also requires Redis, AWS Secrets Manager credentials, and a real module exporting `createWorkerHandlers()`.
+Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. A trusted, operator-controlled provisioning CLI now accepts two independently verified sessions for the same user: the current browser session and a fresh, separate email-OTP session. It stores the dedicated session in AWS Secrets Manager, refreshes it through the Custom Access Token Hook, and activates the database row only after the rotated tokens are safely vaulted. The app's user-facing opt-in/OTP handoff is not yet integrated. The BullMQ runtime also requires Redis, AWS Secrets Manager credentials, and a real module exporting `createWorkerHandlers()`.
 
-Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. No service-role key is used by browser code or queue payloads.
+Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. The provisioning CLI additionally requires `SUPABASE_SERVICE_ROLE_KEY` in a trusted operator/control-plane runtime only; it is never used by browser code or included in queue payloads.
 
 ### Worker queue ingress and revocation
 
@@ -75,14 +75,14 @@ Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `
 
 Migration `010_worker_session_immediate_revocation.sql` was applied to the connected Supabase project on 2026-11-16 as version `20261116144654`. It makes the worker context, operation-claim RPC, and worker-only RLS policies re-check the JWT `session_id` against the matching non-revoked `worker_sessions` row. A transactional live SQL check confirmed that a matching active session is accepted, a different session is rejected, and revocation invalidates the still-unexpired JWT.
 
-The queue endpoint remains fail-closed with HTTP 409 until a trusted control-plane provisioner creates a dedicated Auth session and stores its tokens in AWS Secrets Manager. Do not restore the old self-registration route from the unmerged BullMQ draft; authenticated users have SELECT-only access to `worker_sessions`.
+The queue endpoint remains fail-closed with HTTP 409 until a trusted control-plane provisioner creates a dedicated Auth session and stores its tokens in AWS Secrets Manager. The new `provisioned_at` gate keeps a row unusable while credentials are being rotated or written. Do not restore the old self-registration route from the unmerged BullMQ draft; authenticated users have SELECT-only access to `worker_sessions`.
 ### Verification
 
 Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database checks, use `npx supabase test db` only after the local migration history is reconciled with the timestamped migrations recorded by the connected project. The repository's original `001`–`004` filenames do not yet mirror the remote timestamp versions, so do not run `supabase db push` blindly.
 
 The live signup trigger was tested in a rolled-back transaction with a 200-character metadata name and created a profile with a 160-character name. Live privilege checks confirmed that profile INSERT, profile email UPDATE, resume parsed-text UPDATE, application status INSERT, and worker-session INSERT/UPDATE/DELETE are denied to `authenticated`. The live Storage bucket is private.
 
-Remaining security work: configure leaked-password protection in Supabase Auth, add malware scanning/quarantine for uploaded PDFs, and implement the trusted worker-session provisioning flow before enabling worker execution.
+Remaining security work: wire the user-facing background-processing opt-in and separate email-OTP handoff to the trusted control plane; configure the Supabase Custom Access Token Hook in the Dashboard; configure Redis and AWS IAM; add malware scanning/quarantine for uploaded PDFs; and supply real worker handlers. The CLI is deliberately operator-only until the opt-in flow is integrated.
 ## Employer workspace, web search, and Gmail
 
 The employer workspace uses the additive migration `009_employer_workspace_and_recruiting_pipeline.sql`; Gmail connections use `008_gmail_readonly_oauth_connections.sql`. Employer records are user-scoped with RLS. Applicant details are not exposed to employers until a candidate explicitly applies.
@@ -108,3 +108,14 @@ The login screen uses email one-time codes. In Supabase Dashboard → Authentica
 
 ### Israeli locality picker
 The location selector queries the official Population and Immigration Authority locality dataset at data.gov.il and only commits a value after the user selects a returned locality. It requires the upstream dataset API to remain reachable.
+
+
+### Trusted worker-session provisioning
+
+The provisioning CLI is intentionally separate from public Next.js routes. It requires both `--confirm` and `--consent-confirmed`, a valid current user access token, and a fresh email-OTP access/refresh-token pair created with a **separate, non-persisting Supabase Auth client**. The two access tokens must resolve through Supabase Auth to the same user but different `session_id` values; the worker session must be no more than five minutes old and carry an `amr` entry with method `otp`.
+
+Run `npm run worker:provision -- --confirm --consent-confirmed` in a protected control-plane environment and provide the JSON input through stdin. Never put tokens in command-line arguments, shell history, files committed to Git, logs, or chat. Required server-only variables are `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AWS_REGION`, and `TOKEN_VAULT_SECRET_PREFIX`. The service-role key must be restricted to this trusted runtime and must never be configured as a `NEXT_PUBLIC_*` variable.
+
+The provisioner acquires a service-role-only per-user lease, writes an initial secret, upserts a pending worker-session row, refreshes the dedicated Auth session, verifies the custom `worker` claim and database context, writes rotated tokens to Secrets Manager, and only then sets `worker_sessions.provisioned_at`. On failure it restores the previous row or revokes the pending row, deletes the new secret, and attempts to sign out the new Auth session. The queue route and worker RLS both reject rows without `provisioned_at`.
+
+The Supabase Dashboard hook must be configured manually at Authentication → Hooks → Custom Access Token Hook → `public.custom_access_token_hook` before provisioning can succeed. The user-facing consent and second-session OTP flow is not yet wired to this CLI; do not provision a user until that explicit flow exists and the user has opted in.
