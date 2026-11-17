@@ -206,6 +206,15 @@ function executionTypeFor(queueName: WorkerQueueName): ExecutionType {
   return "form_submission";
 }
 
+export function isTerminalWorkerFailure(input: {
+  attemptsMade: number;
+  configuredAttempts: number;
+  failedReason?: string | null;
+}): boolean {
+  return input.attemptsMade >= input.configuredAttempts ||
+    /stalled more than allowable limit/i.test(input.failedReason ?? "");
+}
+
 function createTypedWorker<P extends WorkerPayload>(
   queueName: WorkerQueueName,
   schema: ZodType<P>,
@@ -391,7 +400,9 @@ function createTypedWorker<P extends WorkerPayload>(
             errorCode: safe.code,
           });
 
+          // Permanent validation failures must not consume the retry budget.
           // Only a sanitized, static message reaches BullMQ's Redis failedReason.
+          if (permanent) throw new UnrecoverableError(safe.message);
           throw new Error(safe.message);
         }
       },
@@ -417,14 +428,26 @@ function createTypedWorker<P extends WorkerPayload>(
   worker.on("failed", (job) => {
     if (!job) return;
     const parsed = schema.safeParse(job.data);
-    if (!parsed.success) return;
+    if (!parsed.success) {
+      dependencies.logger.error("invalid_queue_payload_rejected", {
+        queueName,
+        jobId: job.id ?? null,
+        errorCode: "INVALID_PAYLOAD",
+      });
+      return;
+    }
     const payload = parsed.data as P;
     const attempts = typeof job.opts.attempts === "number"
       ? job.opts.attempts
       : Number(DEFAULT_JOB_OPTIONS.attempts ?? 5);
+    const stalledTerminal = /stalled more than allowable limit/i.test(job.failedReason ?? "");
 
-    if (job.attemptsMade >= attempts) {
-      const safe = toSafeWorkerError({ code: "WORKER_FAILED" });
+    if (isTerminalWorkerFailure({
+      attemptsMade: job.attemptsMade,
+      configuredAttempts: attempts,
+      failedReason: job.failedReason,
+    })) {
+      const safe = toSafeWorkerError({ code: stalledTerminal ? "JOB_STALLED" : "WORKER_FAILED" });
       void publishDeadLetter(
         dependencies.deadLetterQueue,
         queueName,
