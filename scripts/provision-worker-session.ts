@@ -1,4 +1,5 @@
 import { loadEnvConfig } from "@next/env";
+import { loadEnvConfig } from "@next/env";
 import {
   CreateSecretCommand,
   DeleteSecretCommand,
