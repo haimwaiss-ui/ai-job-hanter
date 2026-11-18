@@ -10,7 +10,8 @@
     "worker": "tsx src/workers/main.ts",
     "test:unit": "vitest run --exclude tests/integration/**",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:unit"
+    "test": "npm run test:unit",
+    "worker:provision": "tsx src/workers/provision-session.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

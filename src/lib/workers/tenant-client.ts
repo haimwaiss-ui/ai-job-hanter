@@ -29,8 +29,9 @@ export function createTenantWorkerClient(accessToken: string) {
 export async function assertWorkerTenant(
   supabase: SupabaseClient<Database>,
   expectedUserId: string,
+  accessToken: string,
 ): Promise<void> {
-  const { data: authData, error: authError } = await supabase.auth.getUser();
+  const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
   if (authError || !authData.user || authData.user.id !== expectedUserId) {
     throw new Error("Worker tenant identity mismatch");
   }
