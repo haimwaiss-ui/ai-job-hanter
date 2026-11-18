@@ -813,9 +813,21 @@ export type Database = {
         }
         Returns: boolean
       }
+      complete_worker_provisioning: {
+        Args: never
+        Returns: boolean
+      }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       release_worker_provisioning_lock: {
         Args: { p_lock_token: string; p_user_id: string }
+        Returns: boolean
+      }
+      renew_worker_provisioning_lock: {
+        Args: {
+          p_lease_seconds?: number
+          p_lock_token: string
+          p_user_id: string
+        }
         Returns: boolean
       }
       worker_current_context: {
