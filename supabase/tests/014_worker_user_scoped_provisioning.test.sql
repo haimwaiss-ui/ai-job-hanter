@@ -1,5 +1,5 @@
 begin;
-select plan(15);
+select plan(16);
 
 insert into auth.users (id, email)
 values
@@ -50,7 +50,7 @@ select ok(
   'only the matching lease token can renew the lease'
 );
 select ok(
-  (select count(*) = 1 from public.worker_provisioning_locks),
+  (select count(user_id) = 1 from public.worker_provisioning_locks),
   'RLS hides another user provisioning lock'
 );
 select ok(
@@ -84,6 +84,7 @@ set token_vault_ref = excluded.token_vault_ref,
     revoked_at = null,
     provisioned_at = null;
 
+reset role;
 select ok(
   not (public.custom_access_token_hook(jsonb_build_object(
     'user_id', 'e1000000-0000-4000-8000-000000000001',
@@ -91,6 +92,7 @@ select ok(
   )) -> 'claims' ? 'worker'),
   'Auth hook does not issue worker claim before vault provisioning completes'
 );
+set local role authenticated;
 
 select ok(public.complete_worker_provisioning(), 'current user can complete provisioning for its exact session');
 select ok(not public.complete_worker_provisioning(), 'provisioning completion is one-way');
@@ -104,6 +106,7 @@ select ok(
   (select worker_enabled from public.worker_current_context()),
   'worker context becomes active only after provisioning completes'
 );
+reset role;
 select ok(
   (public.custom_access_token_hook(jsonb_build_object(
     'user_id', 'e1000000-0000-4000-8000-000000000001',
@@ -111,6 +114,7 @@ select ok(
   )) -> 'claims' ->> 'worker') = 'true',
   'Auth hook issues worker claim only after provisioning is complete'
 );
+set local role authenticated;
 select ok(
   public.claim_worker_operation(
     'scraper-queue',
@@ -134,6 +138,11 @@ select ok(
     'EXECUTE'
   ),
   'service role cannot use the provisioning lock RPC'
+);
+select ok(
+  (select pg_get_expr(polwithcheck, polrelid) ilike '%private.is_active_worker_session%'
+   from pg_policy where polname = 'execution_logs_insert_worker'),
+  'execution log inserts require the active private worker-session predicate'
 );
 
 reset role;
