@@ -15,10 +15,8 @@ export interface WorkerProvisioningLeaseOptions {
 }
 
 /**
- * Serializes trusted worker provisioning with user-scoped SECURITY INVOKER RPCs.
- * The supplied client must carry the target user's own JWT; never pass a
- * service-role client. This helper is for the local control-plane CLI only.
- * Never import it into browser code, user-facing API routes, or the BullMQ runtime.
+ * Serializes provisioning per user using user-scoped SECURITY INVOKER RPCs.
+ * The lock token stays in this process and the RLS-protected lock row only.
  */
 export async function withWorkerProvisioningLease<T>(
   supabase: SupabaseClient<Database>,
@@ -55,6 +53,7 @@ export async function withWorkerProvisioningLease<T>(
   }
 
   let leaseLost = false;
+  let taskFailed = false;
   let renewalInFlight: Promise<void> | null = null;
 
   const assertLease = () => {
@@ -87,10 +86,11 @@ export async function withWorkerProvisioningLease<T>(
 
   try {
     const result = await task(assertLease);
-    // The task performs its own final lease assertion before committing the
-    // active session. Do not invalidate a completed task if the lease expires
-    // in the tiny interval after that assertion.
+    assertLease();
     return result;
+  } catch (error) {
+    taskFailed = true;
+    throw error;
   } finally {
     clearInterval(timer);
     if (renewalInFlight) await renewalInFlight;
@@ -103,9 +103,8 @@ export async function withWorkerProvisioningLease<T>(
       },
     );
 
-    if (releaseError || released !== true) {
-      // The lease is time-bounded and will expire even if release is unavailable.
-      console.warn(JSON.stringify({ event: "worker_provisioning_lock_release_deferred" }));
+    if ((releaseError || released !== true) && !taskFailed) {
+      throw new WorkerProvisioningLeaseError("Worker provisioning lock release was not confirmed");
     }
   }
 }
