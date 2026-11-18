@@ -738,10 +738,35 @@ export type Database = {
         }
         Relationships: []
       }
+      worker_provisioning_locks: {
+        Row: {
+          created_at: string
+          lease_until: string
+          lock_token: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          lease_until: string
+          lock_token: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          lease_until?: string
+          lock_token?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       worker_sessions: {
         Row: {
           auth_session_id: string
           created_at: string
+          provisioned_at: string | null
           revoked_at: string | null
           token_vault_ref: string
           updated_at: string
@@ -750,6 +775,7 @@ export type Database = {
         Insert: {
           auth_session_id: string
           created_at?: string
+          provisioned_at?: string | null
           revoked_at?: string | null
           token_vault_ref: string
           updated_at?: string
@@ -758,6 +784,7 @@ export type Database = {
         Update: {
           auth_session_id?: string
           created_at?: string
+          provisioned_at?: string | null
           revoked_at?: string | null
           token_vault_ref?: string
           updated_at?: string
@@ -770,6 +797,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      acquire_worker_provisioning_lock: {
+        Args: {
+          p_lease_seconds?: number
+          p_lock_token: string
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       claim_worker_operation: {
         Args: {
           p_idempotency_key: string
@@ -779,6 +814,10 @@ export type Database = {
         Returns: boolean
       }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
+      release_worker_provisioning_lock: {
+        Args: { p_lock_token: string; p_user_id: string }
+        Returns: boolean
+      }
       worker_current_context: {
         Args: never
         Returns: {
