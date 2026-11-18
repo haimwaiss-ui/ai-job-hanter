@@ -9,7 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Database, Tables } from "../src/lib/supabase/database.types";
-import { extractAuthSessionId } from "../src/lib/workers/token-vault";
+import { extractAuthSessionId, extractWorkerSessionClaims } from "../src/lib/workers/token-vault";
 
 loadEnvConfig(process.cwd());
 
@@ -47,16 +47,6 @@ const vaultSessionSchema = z.object({
 
 type WorkerSessionRow = Tables<"worker_sessions">;
 
-function decodeJwtPayload(token: string): Record<string, unknown> {
-  const parts = token.split(".");
-  if (parts.length !== 3) throw new Error("Invalid Auth access token");
-  try {
-    return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as Record<string, unknown>;
-  } catch {
-    throw new Error("Invalid Auth access token");
-  }
-}
-
 function secretId(tokenVaultRef: string): string {
   return secretPrefix + "/" + userId + "/" + tokenVaultRef;
 }
@@ -88,7 +78,8 @@ async function existingSecretIsValid(
         extractAuthSessionId(parsed.data.accessToken) !== existing.auth_session_id) {
       return false;
     }
-    return decodeJwtPayload(parsed.data.accessToken).worker === true;
+    const claims = extractWorkerSessionClaims(parsed.data.accessToken);
+    return claims.userId === userId && claims.sessionId === existing.auth_session_id && claims.worker;
   } catch (error) {
     if ((error as { name?: string }).name === "ResourceNotFoundException") return false;
     throw new Error("Unable to inspect the existing worker token vault entry");
@@ -179,9 +170,9 @@ async function main(): Promise<void> {
         throw new Error("Unable to refresh the dedicated worker Auth session");
       }
 
-      const claims = decodeJwtPayload(refreshed.session.access_token);
-      const sessionId = extractAuthSessionId(refreshed.session.access_token);
-      if (claims.sub !== userId || claims.worker !== true || sessionId !== initialSessionId) {
+      const claims = extractWorkerSessionClaims(refreshed.session.access_token);
+      const sessionId = claims.sessionId;
+      if (claims.userId !== userId || !claims.worker || sessionId !== initialSessionId) {
         throw new Error("The Supabase Custom Access Token Hook is not enabled or did not issue the worker claim");
       }
 
@@ -236,11 +227,19 @@ async function main(): Promise<void> {
       }
       if (registrationChanged) {
         if (previous) {
-          await serviceClient.from("worker_sessions").upsert(previous, { onConflict: "user_id" });
+          const { error: restoreError } = await serviceClient
+            .from("worker_sessions")
+            .upsert(previous, { onConflict: "user_id" });
+          if (restoreError) {
+            console.error(JSON.stringify({ event: "worker_registration_rollback_failed", userId }));
+          }
         } else {
-          await serviceClient.from("worker_sessions").delete()
+          const { error: cleanupError } = await serviceClient.from("worker_sessions").delete()
             .eq("user_id", userId)
             .eq("auth_session_id", initialSessionId);
+          if (cleanupError) {
+            console.error(JSON.stringify({ event: "worker_registration_cleanup_failed", userId }));
+          }
         }
       }
       throw error;
