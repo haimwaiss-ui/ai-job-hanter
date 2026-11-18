@@ -1,6 +1,9 @@
+import { loadEnvConfig } from "@next/env";
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+loadEnvConfig(process.cwd());
 
 function projectRefFromEnvironment() {
   if (process.env.SUPABASE_PROJECT_ID?.trim()) return process.env.SUPABASE_PROJECT_ID.trim();
