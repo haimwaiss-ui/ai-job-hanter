@@ -94,16 +94,26 @@ export async function withWorkerProvisioningLease<T>(
   } finally {
     clearInterval(timer);
     if (renewalInFlight) await renewalInFlight;
+    const leaseWasLost = leaseLost;
+    let releaseFailed = false;
 
-    const { data: released, error: releaseError } = await supabase.rpc(
-      "release_worker_provisioning_lock",
-      {
-        p_user_id: userId,
-        p_lock_token: lockToken,
-      },
-    );
+    try {
+      const { data: released, error: releaseError } = await supabase.rpc(
+        "release_worker_provisioning_lock",
+        {
+          p_user_id: userId,
+          p_lock_token: lockToken,
+        },
+      );
+      releaseFailed = Boolean(releaseError) || released !== true;
+    } catch {
+      releaseFailed = true;
+    }
 
-    if ((releaseError || released !== true) && !taskFailed) {
+    if (!taskFailed && leaseWasLost) {
+      throw new WorkerProvisioningLeaseError("Worker provisioning lease was lost");
+    }
+    if (!taskFailed && releaseFailed) {
       throw new WorkerProvisioningLeaseError("Worker provisioning lock release was not confirmed");
     }
   }
