@@ -75,14 +75,14 @@ The worker process uses only `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `
 
 Migration `010_worker_session_immediate_revocation.sql` was applied to the connected Supabase project on 2026-11-16 as version `20261116144654`. It makes the worker context, operation-claim RPC, and worker-only RLS policies re-check the JWT `session_id` against the matching non-revoked `worker_sessions` row. A transactional live SQL check confirmed that a matching active session is accepted, a different session is rejected, and revocation invalidates the still-unexpired JWT.
 
-The queue endpoint remains fail-closed with HTTP 409 until migration 011 is applied, the Custom Access Token Hook is enabled, and the CLI provisioner has registered a dedicated session and stored its credentials in AWS Secrets Manager. The provisioner uses only the user's own JWT and RLS-limited table grants; no service-role bypass is introduced.
+The queue endpoint remains fail-closed with HTTP 409 until `20261118141000_worker_user_scoped_provisioning.sql` is applied, the Custom Access Token Hook is enabled, and the CLI provisioner has registered a dedicated session and stored its credentials in AWS Secrets Manager. The live audit on 2026-11-18 found that the connected project still grants authenticated users only SELECT on `worker_sessions`, has no owner RLS policies on `worker_provisioning_locks`, and retains service-role-only SECURITY DEFINER provisioning-lock RPCs. In addition, `worker_current_context()` and `claim_worker_operation()` still reference the removed `public.is_active_worker_session()` helper. The pending migration repairs these references, changes provisioning to user-scoped SECURITY INVOKER RPCs and owner RLS, and gates `execution_logs` inserts on an active worker session. Do not run the provisioner before this migration is applied.
 ### Verification
 
 Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database checks, use `npx supabase test db` only after the local migration history is reconciled with the timestamped migrations recorded by the connected project. The repository's original `001`–`004` filenames do not yet mirror the remote timestamp versions, so do not run `supabase db push` blindly.
 
-The live signup trigger was tested in a rolled-back transaction with a 200-character metadata name and created a profile with a 160-character name. Live privilege checks confirmed that profile INSERT, profile email UPDATE, resume parsed-text UPDATE, application status INSERT, and worker-session INSERT/UPDATE/DELETE are denied to `authenticated` on the current live schema. Migration 011 is not yet applied; it changes only worker-session INSERT/UPDATE to own-user, current-session RLS-bound operations while keeping DELETE denied. The live Storage bucket is private.
+The live signup trigger was tested in a rolled-back transaction with a 200-character metadata name and created a profile with a 160-character name. A read-only worker audit on 2026-11-18 confirmed that `worker_sessions` currently grants `authenticated` SELECT only; INSERT/UPDATE/DELETE remain denied. `worker_provisioning_locks` has RLS enabled but no policies, and the provisioning-lock RPCs remain SECURITY DEFINER and executable only by `service_role`. The live `worker_current_context()` and `claim_worker_operation()` definitions still call the removed `public.is_active_worker_session()` helper. The pending migration `20261118141000_worker_user_scoped_provisioning.sql` fixes these gaps but is not recorded in the live migration history. The live Storage bucket is private.
 
-Remaining security work: review and apply migration 011 after the remote migration history is reconciled, enable the Custom Access Token Hook, configure Redis/AWS worker-host secrets, add malware scanning/quarantine for uploaded PDFs, and run the isolated integration suite before activating workers.
+Remaining security work: reconcile the remote migration history and apply `20261118141000_worker_user_scoped_provisioning.sql`; enable and verify the Custom Access Token Hook; configure Redis and AWS IAM/Secrets Manager on a dedicated worker host; add malware scanning/quarantine for uploaded PDFs; and run the isolated integration suite before activating workers.
 ## Employer workspace, web search, and Gmail
 
 The employer workspace uses the additive migration `009_employer_workspace_and_recruiting_pipeline.sql`; Gmail connections use `008_gmail_readonly_oauth_connections.sql`. Employer records are user-scoped with RLS. Applicant details are not exposed to employers until a candidate explicitly applies.
@@ -112,17 +112,9 @@ The location selector queries the official Population and Immigration Authority 
 
 ### Worker security and verification follow-up
 
-Migration `011_worker_helper_private_schema.sql` moves the SECURITY DEFINER
-worker-session predicate from the exposed `public` schema into the non-exposed
-`private` schema. Apply it only after reviewing it against the live schema and
-the recorded remote migration history. Do not add `private` to Supabase's
-Exposed schemas; the RLS policies and the invoker RPC call the helper internally.
+The connected project records `20261118064006_move_worker_session_guard_to_private_schema`, which moved the SECURITY DEFINER worker-session predicate out of the exposed `public` schema and into non-exposed `private`. Do not add `private` to Supabase's Exposed schemas; RLS policies and invoker RPCs call the helper internally.
 
-Migration 011 also adds column-limited INSERT/UPDATE grants for `worker_sessions`.
-RLS permits only the owner to register or rotate a row, and the row's
-`auth_session_id` must match that request's signed JWT session. DELETE remains
-revoked. The local provisioner signs in through a fresh email OTP session, then
-stores the refreshed tokens and matching session ID in AWS Secrets Manager.
+The follow-up migration `20261118141000_worker_user_scoped_provisioning.sql` is still pending on the live project. It adds column-limited owner INSERT/UPDATE grants for `worker_sessions`, owner-only RLS policies for provisioning leases, SECURITY INVOKER lease/provisioning RPCs, repairs the two worker RPCs that still reference the removed public helper, and makes `execution_logs` INSERT re-check the active worker session. DELETE on `worker_sessions` remains revoked. Until this migration is applied, the user-scoped CLI provisioner cannot complete registration; do not replace it with a service-role bypass. The provisioner signs in through a fresh email OTP session, then stores the refreshed tokens and matching session ID in AWS Secrets Manager.
 
 Run the provisioner only from a trusted local terminal after configuring
 `WORKER_USER_ID`, `WORKER_EMAIL`, `NEXT_PUBLIC_SUPABASE_URL`,
