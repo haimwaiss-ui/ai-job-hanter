@@ -103,6 +103,7 @@ async function main(): Promise<void> {
     supabase,
     envSchema.WORKER_USER_ID,
     async (assertLease) => {
+      assertLease();
       const { data: existing, error: existingError } = await supabase
         .from("worker_sessions")
         .select("token_vault_ref")
@@ -111,6 +112,7 @@ async function main(): Promise<void> {
       if (existingError) throw new Error("Unable to read existing worker session");
 
       const tokenVaultRef = existing?.token_vault_ref ?? randomUUID();
+      assertLease();
       const secretId = envSchema.TOKEN_VAULT_SECRET_PREFIX.replace(/\/+$/, "") +
         "/" + envSchema.WORKER_USER_ID + "/" + tokenVaultRef;
 
