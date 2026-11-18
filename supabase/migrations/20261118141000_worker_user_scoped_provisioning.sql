@@ -283,14 +283,14 @@ create policy execution_logs_insert_worker
   );
 
 comment on table public.worker_sessions is
-  'Trusted service-role-only provisioning. Authenticated users may read only their own opaque vault reference; tokens are stored only in AWS Secrets Manager.';
+  'User-scoped provisioning. Authenticated users may manage only their own session row when the signed JWT session_id matches; tokens are stored only in AWS Secrets Manager.';
 comment on table public.worker_provisioning_locks is
-  'Short-lived per-user leases for the trusted worker provisioning CLI; browser roles have no access.';
+  'Short-lived per-user provisioning leases. Authenticated access is constrained by SECURITY INVOKER RPCs and owner-only RLS policies.';
 comment on function public.acquire_worker_provisioning_lock(uuid, uuid, integer) is
-  'Acquires an expiring worker-provisioning lease. Executable only with the Supabase service_role JWT.';
+  'Acquires an expiring lease only for auth.uid(); SECURITY INVOKER and RLS enforce tenant ownership.';
 comment on function public.renew_worker_provisioning_lock(uuid, uuid, integer) is
-  'Renews only the matching unexpired service-role worker-provisioning lease.';
+  'Renews only the caller's matching unexpired provisioning lease under RLS.';
 comment on function public.release_worker_provisioning_lock(uuid, uuid) is
-  'Releases only the matching service-role worker-provisioning lease token.';
+  'Releases only the caller's matching provisioning lease token under RLS.';
 
 commit;
