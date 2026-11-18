@@ -15,12 +15,13 @@ export interface WorkerProvisioningLeaseOptions {
 }
 
 /**
- * Serializes trusted worker provisioning with service-role-only RPCs.
- * This helper is for the local control-plane CLI only. Never import it into
- * browser code, user-facing API routes, or the BullMQ worker runtime.
+ * Serializes trusted worker provisioning with user-scoped SECURITY INVOKER RPCs.
+ * The supplied client must carry the target user's own JWT; never pass a
+ * service-role client. This helper is for the local control-plane CLI only.
+ * Never import it into browser code, user-facing API routes, or the BullMQ runtime.
  */
 export async function withWorkerProvisioningLease<T>(
-  serviceClient: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database>,
   userId: string,
   task: (assertLease: () => void) => Promise<T>,
   options: WorkerProvisioningLeaseOptions = {},
@@ -40,7 +41,7 @@ export async function withWorkerProvisioningLease<T>(
   }
 
   const lockToken = randomUUID();
-  const { data: acquired, error: acquireError } = await serviceClient.rpc(
+  const { data: acquired, error: acquireError } = await supabase.rpc(
     "acquire_worker_provisioning_lock",
     {
       p_user_id: userId,
@@ -66,7 +67,7 @@ export async function withWorkerProvisioningLease<T>(
     if (renewalInFlight) return;
 
     renewalInFlight = (async () => {
-      const { data: renewed, error } = await serviceClient.rpc(
+      const { data: renewed, error } = await supabase.rpc(
         "renew_worker_provisioning_lock",
         {
           p_user_id: userId,
@@ -94,7 +95,7 @@ export async function withWorkerProvisioningLease<T>(
     clearInterval(timer);
     if (renewalInFlight) await renewalInFlight;
 
-    const { data: released, error: releaseError } = await serviceClient.rpc(
+    const { data: released, error: releaseError } = await supabase.rpc(
       "release_worker_provisioning_lock",
       {
         p_user_id: userId,
