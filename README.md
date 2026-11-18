@@ -71,7 +71,7 @@ Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `
 
 ### Verification
 
-Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database checks, use `npx supabase test db` only after the local migration history is reconciled with the timestamped migrations recorded by the connected project. The repository's original `001`–`004` filenames do not yet mirror the remote timestamp versions, so do not run `supabase db push` blindly.
+Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database checks, use `npx supabase test db` only after the local migration history is reconciled with the timestamped migrations recorded by the connected project. The repository's original `001`–`004` filenames do not yet mirror the remote timestamp versions, so do not run `supabase db push` blindly. The live ledger also contains five later migrations that are not yet mirrored as repository files: `20261116144654` (worker-session revocation), `20261117141833` (worker provisioning lock), `20261117142311` (provisioned worker state), `20261118064006` (private worker-session guard), and `20261118064036` (RLS policy performance cleanup). Reconstruct and commit these migration files before attempting any CLI push or reset.
 
 The live signup trigger was tested in a rolled-back transaction with a 200-character metadata name and created a profile with a 160-character name. Live privilege checks confirmed that profile INSERT, profile email UPDATE, resume parsed-text UPDATE, application status INSERT, and worker-session INSERT/UPDATE/DELETE are denied to `authenticated`. The live Storage bucket is private.
 
