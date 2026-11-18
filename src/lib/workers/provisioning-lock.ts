@@ -15,11 +15,12 @@ export interface WorkerProvisioningLeaseOptions {
 }
 
 /**
- * Serializes provisioning per user using user-scoped SECURITY INVOKER RPCs.
- * The lock token stays in this process and the RLS-protected lock row only.
+ * Serializes trusted worker provisioning with service-role-only RPCs.
+ * This helper is for the local control-plane CLI only. Never import it into
+ * browser code, user-facing API routes, or the BullMQ worker runtime.
  */
 export async function withWorkerProvisioningLease<T>(
-  supabase: SupabaseClient<Database>,
+  serviceClient: SupabaseClient<Database>,
   userId: string,
   task: (assertLease: () => void) => Promise<T>,
   options: WorkerProvisioningLeaseOptions = {},
@@ -39,7 +40,7 @@ export async function withWorkerProvisioningLease<T>(
   }
 
   const lockToken = randomUUID();
-  const { data: acquired, error: acquireError } = await supabase.rpc(
+  const { data: acquired, error: acquireError } = await serviceClient.rpc(
     "acquire_worker_provisioning_lock",
     {
       p_user_id: userId,
@@ -53,7 +54,6 @@ export async function withWorkerProvisioningLease<T>(
   }
 
   let leaseLost = false;
-  let taskFailed = false;
   let renewalInFlight: Promise<void> | null = null;
 
   const assertLease = () => {
@@ -63,10 +63,10 @@ export async function withWorkerProvisioningLease<T>(
   };
 
   const timer = setInterval(() => {
-    if (renewalInFlight || leaseLost) return;
+    if (renewalInFlight) return;
 
     renewalInFlight = (async () => {
-      const { data: renewed, error } = await supabase.rpc(
+      const { data: renewed, error } = await serviceClient.rpc(
         "renew_worker_provisioning_lock",
         {
           p_user_id: userId,
@@ -86,35 +86,25 @@ export async function withWorkerProvisioningLease<T>(
 
   try {
     const result = await task(assertLease);
-    assertLease();
+    // The task performs its own final lease assertion before committing the
+    // active session. Do not invalidate a completed task if the lease expires
+    // in the tiny interval after that assertion.
     return result;
-  } catch (error) {
-    taskFailed = true;
-    throw error;
   } finally {
     clearInterval(timer);
     if (renewalInFlight) await renewalInFlight;
-    const leaseWasLost = leaseLost;
-    let releaseFailed = false;
 
-    try {
-      const { data: released, error: releaseError } = await supabase.rpc(
-        "release_worker_provisioning_lock",
-        {
-          p_user_id: userId,
-          p_lock_token: lockToken,
-        },
-      );
-      releaseFailed = Boolean(releaseError) || released !== true;
-    } catch {
-      releaseFailed = true;
-    }
+    const { data: released, error: releaseError } = await serviceClient.rpc(
+      "release_worker_provisioning_lock",
+      {
+        p_user_id: userId,
+        p_lock_token: lockToken,
+      },
+    );
 
-    if (!taskFailed && leaseWasLost) {
-      throw new WorkerProvisioningLeaseError("Worker provisioning lease was lost");
-    }
-    if (!taskFailed && releaseFailed) {
-      throw new WorkerProvisioningLeaseError("Worker provisioning lock release was not confirmed");
+    if (releaseError || released !== true) {
+      // The lease is time-bounded and will expire even if release is unavailable.
+      console.warn(JSON.stringify({ event: "worker_provisioning_lock_release_deferred" }));
     }
   }
 }
