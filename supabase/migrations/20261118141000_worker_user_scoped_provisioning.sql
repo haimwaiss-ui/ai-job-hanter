@@ -103,10 +103,10 @@ begin
   end if;
 
   insert into public.worker_provisioning_locks (
-    user_id, lock_token, lease_until, created_at, updated_at
+    user_id, lock_token, lease_until
   )
   values (
-    auth.uid(), p_lock_token, now() + make_interval(secs => p_lease_seconds), now(), now()
+    auth.uid(), p_lock_token, now() + make_interval(secs => p_lease_seconds)
   )
   on conflict (user_id) do update
     set lock_token = excluded.lock_token,
