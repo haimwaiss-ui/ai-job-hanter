@@ -6,17 +6,27 @@ const migration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20261118141000_worker_user_scoped_provisioning.sql"),
   "utf8",
 );
+const normalizedMigration = migration.toLowerCase();
 
 function functionSql(name: string): string {
-  const match = migration.match(
-    new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\$\\$;`, "i"),
-  );
-  if (!match) throw new Error(`Missing worker migration function: ${name}`);
-  return match[0].toLowerCase();
+  const marker = `create or replace function public.${name.toLowerCase()}(`;
+  const start = normalizedMigration.indexOf(marker);
+  if (start < 0) throw new Error(`Missing worker migration function: ${name}`);
+  const end = migration.indexOf("$$;", start);
+  if (end < 0) throw new Error(`Unterminated worker migration function: ${name}`);
+  return normalizedMigration.slice(start, end + 3);
+}
+
+function statementSql(prefix: string): string {
+  const start = normalizedMigration.indexOf(prefix.toLowerCase());
+  if (start < 0) throw new Error(`Missing worker migration statement: ${prefix}`);
+  const end = migration.indexOf(";", start);
+  if (end < 0) throw new Error(`Unterminated worker migration statement: ${prefix}`);
+  return normalizedMigration.slice(start, end + 1);
 }
 
 describe("worker provisioning migration security invariants", () => {
-  it("keeps provisioning lease RPCs user-scoped SECURITY INVOKER functions", () => {
+  it("keeps provisioning and worker-context RPCs user-scoped SECURITY INVOKER functions", () => {
     for (const name of [
       "acquire_worker_provisioning_lock",
       "renew_worker_provisioning_lock",
@@ -25,32 +35,55 @@ describe("worker provisioning migration security invariants", () => {
       "worker_current_context",
       "claim_worker_operation",
     ]) {
-      expect(functionSql(name), name).toMatch(/security invoker/);
-      expect(functionSql(name), name).not.toMatch(/security definer/);
+      const body = functionSql(name);
+      expect(body, name).toContain("security invoker");
+      expect(body, name).not.toContain("security definer");
     }
 
-    expect(migration).not.toMatch(/grant\\s+[^;]*\\bto service_role\\s*;/i);
+    const grants = migration
+      .split(";")
+      .map((part) => part.trim().toLowerCase())
+      .filter((part) => part.startsWith("grant "));
+    expect(grants.some((grant) => grant.includes("to service_role"))).toBe(false);
   });
 
-  it("binds worker session and provisioning lease writes to auth.uid() with RLS", () => {
-    expect(migration).toMatch(/alter table public\\.worker_sessions enable row level security/i);
-    expect(migration).toMatch(/alter table public\\.worker_provisioning_locks enable row level security/i);
-    expect(migration).toMatch(/create policy worker_sessions_insert_own_session[\\s\\S]*?user_id = \\(select auth\\.uid\\(\\)\\)[\\s\\S]*?auth_session_id::text/i);
-    expect(migration).toMatch(/create policy worker_sessions_update_own_session[\\s\\S]*?user_id = \\(select auth\\.uid\\(\\)\\)[\\s\\S]*?auth_session_id::text/i);
-    expect(migration).toMatch(/create policy worker_provisioning_locks_select_own[\\s\\S]*?user_id = \\(select auth\\.uid\\(\\)\\)/i);
-    expect(migration).toMatch(/revoke all privileges on table public\\.worker_sessions from public, anon, authenticated, service_role/i);
-    expect(migration).toMatch(/revoke all privileges on table public\\.worker_provisioning_locks from public, anon, authenticated, service_role/i);
+  it("binds worker-session and provisioning-lease writes to auth.uid() with RLS", () => {
+    expect(normalizedMigration).toContain(
+      "alter table public.worker_sessions enable row level security",
+    );
+    expect(normalizedMigration).toContain(
+      "alter table public.worker_provisioning_locks enable row level security",
+    );
+
+    const sessionInsert = statementSql("create policy worker_sessions_insert_own_session");
+    const sessionUpdate = statementSql("create policy worker_sessions_update_own_session");
+    const lockSelect = statementSql("create policy worker_provisioning_locks_select_own");
+
+    for (const policy of [sessionInsert, sessionUpdate, lockSelect]) {
+      expect(policy).toContain("user_id = (select auth.uid())");
+    }
+    for (const policy of [sessionInsert, sessionUpdate]) {
+      expect(policy).toContain("auth_session_id::text");
+      expect(policy).toContain("auth.jwt() ->> 'session_id'");
+    }
+
+    expect(normalizedMigration).toContain(
+      "revoke all privileges on table public.worker_sessions from public, anon, authenticated, service_role",
+    );
+    expect(normalizedMigration).toContain(
+      "revoke all privileges on table public.worker_provisioning_locks from public, anon, authenticated, service_role",
+    );
   });
 
-  it("repairs stale helper references and gates execution-log writes on a live session", () => {
-    expect(functionSql("worker_current_context")).toContain("private.is_active_worker_session()");
-    expect(functionSql("worker_current_context")).not.toContain("public.is_active_worker_session()");
-    expect(functionSql("claim_worker_operation")).toContain("private.is_active_worker_session()");
-    expect(functionSql("claim_worker_operation")).not.toContain("public.is_active_worker_session()");
+  it("repairs stale helper references and gates execution-log writes on an active session", () => {
+    const contextRpc = functionSql("worker_current_context");
+    const claimRpc = functionSql("claim_worker_operation");
+    expect(contextRpc).toContain("private.is_active_worker_session()");
+    expect(contextRpc).not.toContain("public.is_active_worker_session()");
+    expect(claimRpc).toContain("private.is_active_worker_session()");
+    expect(claimRpc).not.toContain("public.is_active_worker_session()");
 
-    const logPolicy = migration.match(
-      /create policy execution_logs_insert_worker[\\s\\S]*?;/i,
-    )?.[0].toLowerCase();
+    const logPolicy = statementSql("create policy execution_logs_insert_worker");
     expect(logPolicy).toContain("private.is_active_worker_session()");
   });
 
