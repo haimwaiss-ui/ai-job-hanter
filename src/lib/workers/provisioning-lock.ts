@@ -63,7 +63,7 @@ export async function withWorkerProvisioningLease<T>(
   };
 
   const timer = setInterval(() => {
-    if (renewalInFlight) return;
+    if (renewalInFlight || leaseLost) return;
 
     renewalInFlight = (async () => {
       const { data: renewed, error } = await supabase.rpc(
