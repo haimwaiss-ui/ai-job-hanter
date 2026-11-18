@@ -63,11 +63,11 @@ The broad table ACLs for `anon` and `authenticated` were revoked. Authenticated 
 
 ### Worker setup is deliberately fail-closed
 
-The worker migration creates `worker_sessions`, `worker_operations`, `worker_current_context()`, `claim_worker_operation()`, and `custom_access_token_hook(event jsonb)`. The session table exposes only the user's own opaque vault reference. Migration 011 adds column-limited INSERT/UPDATE grants and RLS checks that bind `user_id` to `auth.uid()` and `auth_session_id` to the current signed JWT's `session_id`; there is no service-role write path.
+The worker migrations create `worker_sessions`, `worker_operations`, `worker_provisioning_locks`, `worker_current_context()`, `claim_worker_operation()`, and `custom_access_token_hook(event jsonb)`. Worker execution uses short-lived user-scoped JWTs and ordinary RLS; no service-role credential is used by the worker or its provisioner.
 
-Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. The local CLI provisioner at `scripts/provision-worker-session.ts` signs in with a fresh email OTP session, upserts only that session's row under RLS, refreshes the token to receive the worker claim, and stores access/refresh tokens plus `sessionId` in AWS Secrets Manager. Run it with `WORKER_USER_ID` and `WORKER_EMAIL`; enter the one-time code at the terminal. Never use or copy the browser session, and never put these tokens in Vercel, Redis, source control, logs, or metrics. The BullMQ runtime also requires Redis, AWS Secrets Manager credentials, and a real module exporting `createWorkerHandlers()`.
+Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. Apply `20261118141000_worker_user_scoped_provisioning.sql` after reconciling the timestamped remote migration history. It gives each user an RLS-scoped provisioning lease, repairs the worker RPC references to the private active-session helper, and makes the Auth hook issue `worker=true` only after `provisioned_at` is set. The CLI at `scripts/provision-worker-session.ts` creates a fresh email-OTP session, acquires that user's lease, writes the initial token pair to AWS Secrets Manager, completes provisioning through a SECURITY INVOKER RPC, refreshes the session, verifies `auth.uid()` through `worker_current_context()`, and then stores the rotated token pair. If any step fails after registration, it revokes the row. Run it with `WORKER_USER_ID` and `WORKER_EMAIL`; enter the one-time code at the terminal. Never use or copy the browser session, and never put raw tokens in Vercel, Redis, source control, logs, or metrics.
 
-Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. No service-role key is used by browser code or queue payloads.
+The worker process uses only `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. AWS credentials must be supplied through the worker host's workload identity/IAM role, not copied into the browser or queue payloads. The provisioner uses the user's publishable Supabase key plus a separate OTP session and scoped RLS; it does not use a service-role key.
 
 ### Worker queue ingress and revocation
 
@@ -160,3 +160,10 @@ The two RLS identities must be different users with active worker sessions.
 Never use a service-role key. Run these tests only against an isolated non-production
 Supabase project: they create minimal tenant-scoped `worker_operations` records
 and intentionally do not delete rows from the database.
+
+
+## Worker provisioning follow-up
+
+The live signup trigger was tested in a rolled-back transaction with a 200-character metadata name and created a profile with a 160-character name. The live project has the private worker-session helper and RLS policy cleanup migrations applied, but read-only inspection found that `worker_sessions` still denies authenticated INSERT/UPDATE, the provisioning-lock table has no user policies, and the two public worker RPCs still reference the removed `public.is_active_worker_session()` helper. Migration `20261118141000_worker_user_scoped_provisioning.sql` addresses these gaps; it is committed to the worker branch but has not been applied to the live database. The live Storage bucket remains private.
+
+Remaining security work: reconcile and apply the new additive worker provisioning migration, verify the Auth Hook is enabled, configure AWS IAM/Secrets Manager access and Redis on a dedicated worker host, add malware scanning/quarantine for uploaded PDFs, and run the isolated integration suite before activating workers.
