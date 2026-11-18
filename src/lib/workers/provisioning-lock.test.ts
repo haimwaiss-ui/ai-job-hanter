@@ -74,14 +74,14 @@ describe("user-scoped worker provisioning lease", () => {
       supabase,
       "10000000-0000-4000-8000-000000000001",
       async (assertLease) => {
-        await new Promise((resolve) => setTimeout(resolve, 25));
+        await new Promise((resolve) => setTimeout(resolve, 60));
         assertLease();
       },
-      { leaseSeconds: 30, renewEveryMs: 5 },
+      { leaseSeconds: 30, renewEveryMs: 10 },
     )).rejects.toBeInstanceOf(WorkerProvisioningLeaseError);
 
     expect(renewals).toBeGreaterThan(0);
-    expect(calls.at(-1)).toBe("release_worker_provisioning_lock");
+    expect(calls[calls.length - 1]).toBe("release_worker_provisioning_lock");
   });
 
   it("releases the lease when the provisioning task throws", async () => {
