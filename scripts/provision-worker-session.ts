@@ -175,7 +175,8 @@ async function main(): Promise<void> {
         const currentContext = Array.isArray(context) ? context[0] : undefined;
         if (
           contextError ||
-          currentContext?.user_id !== envSchema.WORKER_USER_ID ||
+          !currentContext ||
+          currentContext.user_id !== envSchema.WORKER_USER_ID ||
           currentContext.worker_enabled !== true
         ) {
           throw new Error("Postgres did not confirm the active worker tenant context");
