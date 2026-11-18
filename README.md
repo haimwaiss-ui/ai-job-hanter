@@ -81,12 +81,12 @@ Remaining security work: configure leaked-password protection in Supabase Auth, 
 The employer workspace uses the additive migration `009_employer_workspace_and_recruiting_pipeline.sql`; Gmail connections use `008_gmail_readonly_oauth_connections.sql`. Employer records are user-scoped with RLS. Applicant details are not exposed to employers until a candidate explicitly applies.
 
 ### Live web job search
-Set the server-only `TAVILY_API_KEY` environment variable in Vercel to enable live web search and import of job listing results. The scan searches selected job boards and stores new links in the signed-in user's jobs list, deduplicating by source URL. Without this key, the endpoint fails closed and explains that search is not configured.
+Set the server-only `TAVILY_API_KEY` environment variable in Vercel to enable multi-source search. Each scan runs separate searches for Israeli job boards (including AllJobs, Drushim, JobMaster, Jobnet and supported ATS job pages), publicly indexed LinkedIn job pages, publicly indexed Facebook pages/groups, publicly indexed X/Twitter posts, and the wider web. Results are tagged by source category in `raw_metadata`, deduplicated by normalized URL, and saved only to the signed-in user's jobs list. Without this key, the endpoint fails closed and explains that search is not configured. This is search-engine discovery, not unrestricted crawling: private groups, login-only posts, deleted content, and pages blocked from indexing cannot be guaranteed or accessed.
 
 Google Custom Search JSON API is closed to new customers, so the app uses a dedicated web-search provider instead.
 
 ### Gmail read-only scanning
-Configure a Google OAuth web application with this exact redirect URI:
+Configure a Google OAuth web application with this exact authorized redirect URI (the app handles Gmail OAuth directly; do not use the Supabase Auth callback for this flow):
 `https://ai-job-hanter.vercel.app/api/gmail/callback`
 
 Enable the Gmail API and add these server-only Vercel environment variables:
