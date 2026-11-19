@@ -68,10 +68,10 @@ describe("worker provisioning migration security invariants", () => {
       expect(policy).toContain("auth.jwt() ->> 'session_id'");
     }
 
-    expect(normalizedMigration).toContain(
+    expect(compactMigration).toContain(
       "revoke all privileges on table public.worker_sessions from public, anon, authenticated, service_role",
     );
-    expect(normalizedMigration).toContain(
+    expect(compactMigration).toContain(
       "revoke all privileges on table public.worker_provisioning_locks from public, anon, authenticated, service_role",
     );
   });
