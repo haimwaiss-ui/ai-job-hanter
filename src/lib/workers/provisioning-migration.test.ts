@@ -88,6 +88,15 @@ describe("worker provisioning migration security invariants", () => {
     expect(logPolicy).toContain("private.is_active_worker_session()");
   });
 
+  it("keeps the private worker-session predicate executable only by authenticated RLS callers", () => {
+    expect(compactMigration).toContain(
+      "revoke all on function private.is_active_worker_session() from public, anon, authenticated, service_role",
+    );
+    expect(compactMigration).toContain(
+      "grant execute on function private.is_active_worker_session() to authenticated",
+    );
+  });
+
   it("removes the service-role data path from worker operations and execution logs", () => {
     expect(normalizedMigration).toContain(
       "revoke all privileges on table public.worker_operations from public, anon, service_role",
