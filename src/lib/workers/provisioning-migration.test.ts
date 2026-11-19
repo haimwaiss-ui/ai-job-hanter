@@ -7,6 +7,7 @@ const migration = readFileSync(
   "utf8",
 );
 const normalizedMigration = migration.toLowerCase();
+const compactMigration = normalizedMigration.replace(/\\s+/g, " ");
 
 function functionSql(name: string): string {
   const marker = `create or replace function public.${name.toLowerCase()}(`;
@@ -94,10 +95,10 @@ describe("worker provisioning migration security invariants", () => {
     expect(normalizedMigration).toContain(
       "revoke all privileges on table public.execution_logs from public, anon, service_role",
     );
-    expect(normalizedMigration).toContain(
+    expect(compactMigration).toContain(
       "grant insert ( user_id, queue_name, idempotency_key, operation_id, status, attempt_count, lease_until ) on public.worker_operations to authenticated",
     );
-    expect(normalizedMigration).toContain(
+    expect(compactMigration).toContain(
       "grant insert ( user_id, application_id, job_id, execution_type, status, service_name, operation, attempt_number, duration_ms, error_code, error_message, fallback_reason, metadata ) on public.execution_logs to authenticated",
     );
   });
