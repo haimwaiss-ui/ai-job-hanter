@@ -350,6 +350,56 @@ revoke all on function public.claim_worker_operation(text, text, uuid)
 grant execute on function public.claim_worker_operation(text, text, uuid)
   to authenticated;
 
+-- Worker state and execution logs are written only with the short-lived user JWT.
+alter table public.worker_operations enable row level security;
+revoke all privileges on table public.worker_operations from public, anon, service_role;
+grant select on public.worker_operations to authenticated;
+grant insert (
+  user_id, queue_name, idempotency_key, operation_id, status,
+  attempt_count, lease_until
+) on public.worker_operations to authenticated;
+grant update (
+  operation_id, status, attempt_count, lease_until,
+  last_error_code, last_error_message, updated_at, completed_at
+) on public.worker_operations to authenticated;
+
+drop policy if exists worker_operations_select_worker on public.worker_operations;
+create policy worker_operations_select_worker
+  on public.worker_operations for select to authenticated
+  using (
+    user_id = (select auth.uid())
+    and (select private.is_active_worker_session())
+  );
+
+drop policy if exists worker_operations_insert_worker on public.worker_operations;
+create policy worker_operations_insert_worker
+  on public.worker_operations for insert to authenticated
+  with check (
+    user_id = (select auth.uid())
+    and (select private.is_active_worker_session())
+  );
+
+drop policy if exists worker_operations_update_worker on public.worker_operations;
+create policy worker_operations_update_worker
+  on public.worker_operations for update to authenticated
+  using (
+    user_id = (select auth.uid())
+    and (select private.is_active_worker_session())
+  )
+  with check (
+    user_id = (select auth.uid())
+    and (select private.is_active_worker_session())
+  );
+
+alter table public.execution_logs enable row level security;
+revoke all privileges on table public.execution_logs from public, anon, service_role;
+grant select on public.execution_logs to authenticated;
+grant insert (
+  user_id, application_id, job_id, execution_type, status, service_name,
+  operation, attempt_number, duration_ms, error_code, error_message,
+  fallback_reason, metadata
+) on public.execution_logs to authenticated;
+
 drop policy if exists execution_logs_insert_worker on public.execution_logs;
 create policy execution_logs_insert_worker
   on public.execution_logs for insert to authenticated
