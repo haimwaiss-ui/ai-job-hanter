@@ -56,7 +56,7 @@ describe("tenant API schemas", () => {
     expect(jobScanRequestSchema.safeParse({}).success).toBe(true);
     expect(jobScanRequestSchema.safeParse({ query: "  Backend Engineer  " }).data?.query).toBe("Backend Engineer");
     expect(jobScanRequestSchema.safeParse({ query: "x".repeat(241) }).success).toBe(false);
-    expect(jobScanRequestSchema.safeParse({ query: "jobs\\u0000 hidden" }).success).toBe(false);
+    expect(jobScanRequestSchema.safeParse({ query: "jobs\u0000 hidden" }).success).toBe(false);
     expect(jobScanRequestSchema.safeParse({ query: "developer", user_id: userId }).success).toBe(false);
     expect(jobScanRequestSchema.safeParse("developer").success).toBe(false);
   });
