@@ -7,7 +7,7 @@ const migration = readFileSync(
   "utf8",
 );
 const normalizedMigration = migration.toLowerCase();
-const compactMigration = normalizedMigration.replace(/\\s+/g, " ");
+const compactMigration = normalizedMigration.replace(/\s+/g, " ");
 
 function functionSql(name: string): string {
   const marker = `create or replace function public.${name.toLowerCase()}(`;
