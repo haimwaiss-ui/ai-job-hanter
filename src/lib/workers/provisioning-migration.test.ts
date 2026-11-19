@@ -87,6 +87,21 @@ describe("worker provisioning migration security invariants", () => {
     expect(logPolicy).toContain("private.is_active_worker_session()");
   });
 
+  it("removes the service-role data path from worker operations and execution logs", () => {
+    expect(normalizedMigration).toContain(
+      "revoke all privileges on table public.worker_operations from public, anon, service_role",
+    );
+    expect(normalizedMigration).toContain(
+      "revoke all privileges on table public.execution_logs from public, anon, service_role",
+    );
+    expect(normalizedMigration).toContain(
+      "grant insert ( user_id, queue_name, idempotency_key, operation_id, status, attempt_count, lease_until ) on public.worker_operations to authenticated",
+    );
+    expect(normalizedMigration).toContain(
+      "grant insert ( user_id, application_id, job_id, execution_type, status, service_name, operation, attempt_number, duration_ms, error_code, error_message, fallback_reason, metadata ) on public.execution_logs to authenticated",
+    );
+  });
+
   it("issues the worker claim only for the provisioned, matching Auth session", () => {
     const hook = functionSql("custom_access_token_hook");
     expect(hook).toContain("auth_session_id = event_session_id");
