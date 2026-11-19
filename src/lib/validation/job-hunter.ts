@@ -143,7 +143,7 @@ export const preferencesUpdateSchema = z.object({
 }).strict();
 
 const safeSearchQuery = z.string().trim().max(240).refine(
-  (value) => !/[\\u0000-\\u001f\\u007f]/.test(value),
+  (value) => !/[\u0000-\u001f\u007f]/.test(value),
   "Search query contains unsupported control characters",
 );
 
