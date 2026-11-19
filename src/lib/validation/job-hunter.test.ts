@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createApplicationSchema,
+  jobScanRequestSchema,
+  tavilySearchResponseSchema,
   createJobSchema,
   preferencesUpdateSchema,
   profileUpdateSchema,
@@ -47,6 +49,43 @@ describe("tenant API schemas", () => {
       company_name: "Example",
       salary_min: 20000,
       salary_max: 10000,
+    }).success).toBe(false);
+  });
+
+  it("rejects malformed job-scan input and tenant-controlled fields", () => {
+    expect(jobScanRequestSchema.safeParse({}).success).toBe(true);
+    expect(jobScanRequestSchema.safeParse({ query: "  Backend Engineer  " }).data?.query).toBe("Backend Engineer");
+    expect(jobScanRequestSchema.safeParse({ query: "x".repeat(241) }).success).toBe(false);
+    expect(jobScanRequestSchema.safeParse({ query: "jobs\\u0000 hidden" }).success).toBe(false);
+    expect(jobScanRequestSchema.safeParse({ query: "developer", user_id: userId }).success).toBe(false);
+    expect(jobScanRequestSchema.safeParse("developer").success).toBe(false);
+  });
+
+  it("validates external search results before they can be persisted", () => {
+    const valid = {
+      results: [{
+        title: "Backend Engineer",
+        url: "https://careers.example.com/jobs/1",
+        content: "Build services",
+        score: 0.92,
+        published_date: "2026-11-19",
+        raw_content: "provider-only field",
+      }],
+      response_time: 0.4,
+    };
+    const parsed = tavilySearchResponseSchema.safeParse(valid);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect("raw_content" in parsed.data.results[0]).toBe(false);
+    }
+    expect(tavilySearchResponseSchema.safeParse({
+      results: [{ title: "Bad URL", url: "javascript:alert(1)" }],
+    }).success).toBe(false);
+    expect(tavilySearchResponseSchema.safeParse({
+      results: [{ title: "Credential URL", url: "https://user:pass@example.com/job" }],
+    }).success).toBe(false);
+    expect(tavilySearchResponseSchema.safeParse({
+      results: [{ title: "Bad score", url: "https://example.com", score: 4 }],
     }).success).toBe(false);
   });
 
