@@ -65,9 +65,17 @@ The broad table ACLs for `anon` and `authenticated` were revoked. Authenticated 
 
 The worker migration creates `worker_sessions`, `worker_operations`, `worker_current_context()`, `claim_worker_operation()`, and `custom_access_token_hook(event jsonb)`. `worker_sessions` is not self-service: authenticated users can read only their own opaque vault reference and cannot insert, update, or delete worker-session rows. The access-token hook binds the `worker` claim to a dedicated `auth_session_id`; do not register a user's normal browser session as a worker session.
 
-Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. A trusted server-side provisioning flow must create a separate Auth session, store its access/refresh tokens plus `sessionId` in AWS Secrets Manager, and insert the matching `worker_sessions` row. That provisioning flow is not implemented yet. The BullMQ runtime also requires Redis, AWS Secrets Manager credentials, and a real module exporting `createWorkerHandlers()`.
+Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. Then run the one-time provisioner from a trusted operator workstation with `WORKER_USER_ID`, `SUPABASE_SERVICE_ROLE_KEY`, the Supabase URL/publishable key, and AWS Secrets Manager credentials in local `.env.local:
 
-Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. No service-role key is used by browser code or queue payloads.
+```bash
+npm run worker:provision
+```
+
+The provisioner creates a separate passwordless Auth session, verifies the resulting `worker` claim and exact `session_id`, writes the access/refresh tokens plus `sessionId` to AWS Secrets Manager, sets `provisioned_at`, and verifies `worker_current_context()`. Its service-role client is restricted to the provisioning control plane (lease, Auth Admin, and `worker_sessions` registration); it is never used by queue processors to read or write jobs, resumes, applications, or execution logs. Do not copy `SUPABASE_SERVICE_ROLE_KEY` to a worker host, browser environment, Redis payload, or logs.
+
+The separate worker host uses only `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. The worker runtime resolves credentials from the vault and performs all data access with the short-lived user JWT under RLS. A concrete `createWorkerHandlers()` module is still required before any queue can process real work.
+
+See [docs/workers.md](docs/workers.md) for the operator and worker-host runbook.
 
 ### Verification
 
