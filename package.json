@@ -8,9 +8,11 @@
     "start": "next start",
     "lint": "eslint .",
     "worker": "tsx src/workers/main.ts",
-    "test:unit": "vitest run --exclude tests/integration/**",
+    "test:unit": "vitest run --exclude 'tests/integration/**'",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:unit"
+    "test": "npm run test:unit",
+    "test:integration": "vitest run tests/integration",
+    "test:all": "npm run test:unit && npm run test:integration"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

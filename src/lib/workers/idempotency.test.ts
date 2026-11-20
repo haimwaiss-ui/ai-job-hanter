@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBullJobId, createIdempotencyKey } from "./idempotency";
+import { createBullJobId, createIdempotencyKey } from "@/lib/queues/producer";
 
 describe("worker idempotency", () => {
   it("produces stable tenant-scoped keys", () => {
@@ -13,8 +13,9 @@ describe("worker idempotency", () => {
   });
 
   it("creates BullMQ IDs without the reserved colon separator", () => {
-    const id = createBullJobId("scraper-queue", "b".repeat(64));
+    const key = "b".repeat(64);
+    const id = createBullJobId(key);
+    expect(id).toBe("ajh-" + key);
     expect(id).not.toContain(":");
-    expect(id).toContain("scraper-queue-");
   });
 });

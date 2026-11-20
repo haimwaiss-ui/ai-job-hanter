@@ -78,6 +78,33 @@ export function buildManualAssistPatch(input: {
   };
 }
 
+/** Reject IP literals that are not globally routable before exposing a manual-assist link. */
+function isNonPublicIpAddress(host: string): boolean {
+  const version = isIP(host);
+  if (version === 4) {
+    const [first, second] = host.split(".").map(Number);
+    return first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168) ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      first >= 224;
+  }
+
+  if (version === 6) {
+    // Allow only global-unicast 2000::/3 literals. This excludes loopback,
+    // unspecified, IPv4-mapped, ULA, link-local and multicast IPv6 addresses.
+    const firstHextet = Number.parseInt(host.split(":")[0] || "0", 16);
+    return firstHextet < 0x2000 ||
+      firstHextet > 0x3fff ||
+      host.startsWith("2001:db8:");
+  }
+
+  return false;
+}
+
 export function validateExternalApplicationUrl(value: string): string {
   let parsed: URL;
   try {
@@ -93,21 +120,20 @@ export function validateExternalApplicationUrl(value: string): string {
     throw new Error("Manual-assist application URL cannot contain credentials");
   }
 
-  const host = parsed.hostname.toLowerCase();
+  const normalizedHostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
+  const host = normalizedHostname.startsWith("[") && normalizedHostname.endsWith("]")
+    ? normalizedHostname.slice(1, -1)
+    : normalizedHostname;
+
   if (
     host === "localhost" ||
     host.endsWith(".localhost") ||
     host.endsWith(".local") ||
-    host === "0.0.0.0" ||
-    host === "::1" ||
-    (isIP(host) === 4 && (
-      host.startsWith("10.") ||
-      host.startsWith("127.") ||
-      host.startsWith("192.168.") ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-    ))
+    host.endsWith(".internal") ||
+    host.endsWith(".home.arpa") ||
+    isNonPublicIpAddress(host)
   ) {
-    throw new Error("Manual-assist URL points to a private network");
+    throw new Error("Manual-assist URL points to a private or non-public network");
   }
 
   return parsed.toString();

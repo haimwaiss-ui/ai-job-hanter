@@ -35,6 +35,6 @@ describe("worker tenant assertion", () => {
 
   it("rejects a token without the worker claim", async () => {
     const client = fakeClient(userA, false);
-    await expect(assertWorkerTenant(client, userA)).rejects.toThrow("worker JWT claim");
+    await expect(assertWorkerTenant(client, userA)).rejects.toThrow(/worker JWT claim/i);
   });
 });

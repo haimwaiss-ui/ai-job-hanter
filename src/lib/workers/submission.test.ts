@@ -39,6 +39,31 @@ describe("submission safety and CAPTCHA fallback", () => {
     expect(() => validateExternalApplicationUrl("http://127.0.0.1/admin")).toThrow();
   });
 
+  it("rejects private, link-local, carrier-grade NAT and non-public IPv6 targets", () => {
+    const blockedUrls = [
+      "http://10.0.0.8/",
+      "http://169.254.169.254/latest/meta-data/",
+      "http://100.64.0.1/",
+      "http://[::1]/",
+      "http://[fc00::1]/",
+      "http://[fe80::1]/",
+      "http://[::ffff:7f00:1]/",
+      "http://[2001:db8::1]/",
+      "https://portal.internal/apply",
+      "https://printer.home.arpa/",
+    ];
+
+    for (const url of blockedUrls) {
+      expect(() => validateExternalApplicationUrl(url), url).toThrow();
+    }
+  });
+
+  it("allows a globally routable IPv6 application URL", () => {
+    expect(
+      validateExternalApplicationUrl("https://[2606:4700:4700::1111]/apply"),
+    ).toBe("https://[2606:4700:4700::1111]/apply");
+  });
+
   it("persists Manual Assist and does not retry when CAPTCHA is detected", async () => {
     const appRead = {
       select: vi.fn().mockReturnThis(),

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_JOB_OPTIONS } from "@/lib/queues/queues";
-import { closeWorkerResources } from "./runtime";
+import { closeWorkerResources, isTerminalWorkerFailure } from "./runtime";
 
 describe("worker runtime controls", () => {
   it("uses bounded exponential retries with jitter", () => {
@@ -12,13 +12,31 @@ describe("worker runtime controls", () => {
     });
   });
 
+  it("treats stalled-limit failures as terminal before the retry budget is consumed", () => {
+    expect(isTerminalWorkerFailure({
+      attemptsMade: 1,
+      configuredAttempts: 5,
+      failedReason: "job stalled more than allowable limit",
+    })).toBe(true);
+    expect(isTerminalWorkerFailure({
+      attemptsMade: 2,
+      configuredAttempts: 5,
+      failedReason: "temporary provider error",
+    })).toBe(false);
+    expect(isTerminalWorkerFailure({
+      attemptsMade: 5,
+      configuredAttempts: 5,
+    })).toBe(true);
+  });
+
   it("closes workers, dead-letter queue, and Redis during graceful shutdown", async () => {
-    const workerA = { close: vi.fn().mockResolvedValue(undefined) };
-    const workerB = { close: vi.fn().mockResolvedValue(undefined) };
-    const deadLetterQueue = { close: vi.fn().mockResolvedValue(undefined) };
+    const order: string[] = [];
+    const workerA = { close: vi.fn().mockImplementation(async () => { order.push("worker-a"); }) };
+    const workerB = { close: vi.fn().mockImplementation(async () => { order.push("worker-b"); }) };
+    const deadLetterQueue = { close: vi.fn().mockImplementation(async () => { order.push("dead-letter"); }) };
     const connection = {
       status: "ready",
-      quit: vi.fn().mockResolvedValue(undefined),
+      quit: vi.fn().mockImplementation(async () => { order.push("redis"); }),
     };
 
     await closeWorkerResources(
@@ -31,5 +49,6 @@ describe("worker runtime controls", () => {
     expect(workerB.close).toHaveBeenCalledOnce();
     expect(deadLetterQueue.close).toHaveBeenCalledOnce();
     expect(connection.quit).toHaveBeenCalledOnce();
+    expect(order).toEqual(["worker-a", "worker-b", "dead-letter", "redis"]);
   });
 });
