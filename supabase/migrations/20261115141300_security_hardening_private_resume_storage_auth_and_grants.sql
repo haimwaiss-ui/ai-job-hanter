@@ -1,4 +1,4 @@
--- Applied to the connected Supabase project as version 20261115141300.
+
 begin;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -32,6 +32,9 @@ with check (
     '/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.pdf$'
   )
 );
+
+-- Immutable object keys: upload with a new UUID and upsert=false.
+-- No direct object deletion until a server workflow can coordinate metadata and storage.
 
 create or replace function public.handle_new_auth_user()
 returns trigger

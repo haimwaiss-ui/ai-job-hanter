@@ -1,4 +1,4 @@
--- Applied to the connected Supabase project as version 20261115141530.
+
 begin;
 
 drop policy if exists "resume_objects_delete_own" on storage.objects;

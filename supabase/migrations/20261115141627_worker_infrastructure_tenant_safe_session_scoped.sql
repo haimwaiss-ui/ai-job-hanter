@@ -1,5 +1,4 @@
--- Applied to the connected Supabase project as version 20261115141627.
--- Worker claims are bound to a dedicated Auth session, never a user's browser session.
+
 begin;
 
 alter table public.applications
@@ -92,6 +91,9 @@ grant update (
   last_error_code, last_error_message, updated_at, completed_at
 ) on public.worker_operations to authenticated;
 
+-- Supabase Auth hook event supplies user_id and claims.session_id.
+-- A dedicated worker Auth session must be provisioned server-side; the normal
+-- browser session must never be registered as a worker session.
 create or replace function public.custom_access_token_hook(event jsonb)
 returns jsonb
 language plpgsql

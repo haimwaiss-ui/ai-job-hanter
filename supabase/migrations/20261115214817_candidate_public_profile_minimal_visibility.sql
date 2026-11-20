@@ -61,5 +61,6 @@ alter table public.employer_applications
   add constraint employer_applications_candidate_public_profile_fk
   foreign key (candidate_user_id) references public.candidate_public_profiles(user_id) on delete cascade not valid;
 alter table public.employer_applications validate constraint employer_applications_candidate_public_profile_fk;
+
 drop function if exists public.get_employer_applicant_profiles();
 commit;
