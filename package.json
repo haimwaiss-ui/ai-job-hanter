@@ -10,7 +10,9 @@
     "worker": "tsx src/workers/main.ts",
     "test:unit": "vitest run --exclude tests/integration/**",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:unit"
+    "test": "npm run test:unit",
+    "db:types": "node scripts/generate-db-types.mjs",
+    "worker:provision": "tsx scripts/provision-worker-session.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
