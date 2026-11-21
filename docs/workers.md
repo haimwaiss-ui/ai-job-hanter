@@ -72,3 +72,7 @@ npm run build
 ```
 
 Run database integration tests only against an isolated Supabase project with two test users and the Custom Access Token Hook enabled. The live Production database was not changed by this code branch. Redis/AWS/AI provider end-to-end processing still requires separately provisioned infrastructure and credentials.
+
+### Tenant RLS integration test
+
+`tests/integration/worker-rls.integration.test.ts` requires an isolated Supabase test project and two distinct, valid user access tokens in `TEST_USER_A_ACCESS_TOKEN` and `TEST_USER_B_ACCESS_TOKEN`. It creates one temporary job under user A, confirms user B cannot read it, verifies the composite tenant foreign key rejects an application under user B that references user A's job, and cleans up the fixture. It is intentionally excluded from the default unit-test command and must never be pointed at Production.
