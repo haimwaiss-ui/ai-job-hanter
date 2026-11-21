@@ -140,6 +140,7 @@ async function publishDeadLetter(
   job: Job<WorkerPayload>,
   payload: WorkerPayload,
   errorCode: string,
+  attemptsMade: number,
 ): Promise<void> {
   const deadLetter = deadLetterPayloadSchema.parse({
     originalQueue: queueName,
@@ -147,7 +148,7 @@ async function publishDeadLetter(
     userId: payload.userId,
     operationId: payload.operationId,
     idempotencyKey: payload.idempotencyKey,
-    attemptsMade: Math.max(1, job.attemptsMade),
+    attemptsMade: Math.max(1, attemptsMade),
     errorCode,
     failedAt: new Date().toISOString(),
   });
@@ -387,6 +388,7 @@ function createTypedWorker<P extends WorkerPayload>(
               job as Job<WorkerPayload>,
               payload,
               safe.code,
+              attempt,
             );
           }
 
@@ -439,6 +441,7 @@ function createTypedWorker<P extends WorkerPayload>(
         job as Job<WorkerPayload>,
         payload,
         safe.code,
+        job.attemptsMade,
       ).catch(() => {
         dependencies.logger.error("dead_letter_publish_failed", {
           queueName,
