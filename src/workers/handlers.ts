@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import type { Json } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
 import type { ScraperQueuePayload, AiProcessingQueuePayload, SubmissionQueuePayload } from "@/lib/queues/contracts";
 import type { WorkerHandlerContext, WorkerHandlers } from "@/lib/workers/runtime";
 import { PermanentWorkerError } from "@/lib/workers/runtime";
@@ -308,7 +308,8 @@ async function processAi(
     .maybeSingle();
   if (existingError) throw new Error("Unable to load the tenant application");
 
-  const nextStatus = analysis.data.matchScore >= 70 ? "matched" : "discovered";
+  const nextStatus: Database["public"]["Enums"]["application_status"] =
+    analysis.data.matchScore >= 70 ? "matched" : "discovered";
   const patch = {
     match_score: analysis.data.matchScore,
     match_reasons: analysis.data.matchReasons as Json,
