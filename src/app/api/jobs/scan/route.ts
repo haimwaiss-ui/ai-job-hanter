@@ -1,109 +1,11 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { jobScanRequestSchema, tavilySearchResponseSchema, type TavilySearchResult } from "@/lib/validation/job-hunter";
+import { jobScanRequestSchema } from "@/lib/validation/job-hunter";
+import { JOB_SEARCH_GROUPS as SEARCH_GROUPS, normalizeJobUrl as normalizeUrl, searchTavilyGroup as searchGroup } from "@/lib/jobs/tavily";
 import { hasJsonContentType, isSameOriginMutation, contentLengthExceeds, MAX_JSON_BODY_BYTES } from "@/lib/http/request-guards";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
-
-type SearchResult = TavilySearchResult;
-
-type SearchGroup = {
-  id: "job_boards" | "linkedin" | "facebook" | "x" | "web";
-  label: string;
-  querySuffix: string;
-  includeDomains?: string[];
-};
-
-const SEARCH_GROUPS: SearchGroup[] = [
-  {
-    id: "job_boards",
-    label: "אתרי דרושים",
-    querySuffix: "משרות דרושים careers jobs hiring",
-    includeDomains: [
-      "alljobs.co.il",
-      "drushim.co.il",
-      "jobmaster.co.il",
-      "jobnet.co.il",
-      "jobinfo.co.il",
-      "jobkarov.com",
-      "comeet.com",
-      "jobs.lever.co",
-      "boards.greenhouse.io",
-      "jobs.workable.com",
-    ],
-  },
-  {
-    id: "linkedin",
-    label: "LinkedIn ציבורי",
-    querySuffix: "משרה דרושים hiring job opening",
-    includeDomains: ["linkedin.com"],
-  },
-  {
-    id: "facebook",
-    label: "Facebook ציבורי",
-    querySuffix: "משרה דרושים דרושים עובדים hiring job opening",
-    includeDomains: ["facebook.com"],
-  },
-  {
-    id: "x",
-    label: "X / Twitter ציבורי",
-    querySuffix: "משרה דרושים hiring job opening",
-    includeDomains: ["x.com", "twitter.com"],
-  },
-  {
-    id: "web",
-    label: "חיפוש רשת כללי",
-    querySuffix: "משרות דרושים careers job opening hiring",
-  },
-];
-
-function normalizeUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    if (url.username || url.password) return null;
-    url.hash = "";
-    for (const key of [...url.searchParams.keys()]) {
-      if (/^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$)/i.test(key)) url.searchParams.delete(key);
-    }
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-async function searchGroup(
-  apiKey: string,
-  group: SearchGroup,
-  baseQuery: string,
-): Promise<{ group: SearchGroup; results: SearchResult[]; error?: number }> {
-  const response = await fetch("https://api.tavily.com/search", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + apiKey,
-    },
-    body: JSON.stringify({
-      country: "Israel",
-      query: [baseQuery, group.querySuffix].filter(Boolean).join(" "),
-      search_depth: "advanced",
-      topic: "general",
-      max_results: group.id === "web" ? 12 : 10,
-      include_domains: group.includeDomains,
-      include_answer: false,
-      include_raw_content: false,
-    }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(12_000),
-  });
-
-  if (!response.ok) return { group, results: [], error: response.status };
-  const body: unknown = await response.json().catch(() => null);
-  const parsed = tavilySearchResponseSchema.safeParse(body);
-  if (!parsed.success) return { group, results: [], error: 502 };
-  return { group, results: parsed.data.results };
-}
 
 export async function POST(request: Request) {
   if (!isSameOriginMutation(request)) {
