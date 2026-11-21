@@ -5,10 +5,8 @@ import { AwsSecretsManagerTokenVault } from "@/lib/workers/token-vault";
 import { createWorkerRuntime, type WorkerHandlers } from "@/lib/workers/runtime";
 
 async function main(): Promise<void> {
-  const handlerModulePath = process.env.WORKER_HANDLER_MODULE;
-  if (!handlerModulePath) {
-    throw new Error("WORKER_HANDLER_MODULE must point to a module exporting createWorkerHandlers()");
-  }
+  const handlerModulePath = process.env.WORKER_HANDLER_MODULE ??
+    resolve(process.cwd(), "src/workers/handlers.ts");
 
   const handlerModule = await import(pathToFileURL(resolve(handlerModulePath)).href) as {
     createWorkerHandlers?: () => WorkerHandlers | Promise<WorkerHandlers>;
