@@ -37,6 +37,8 @@ describe("submission safety and CAPTCHA fallback", () => {
   it("rejects unsafe application URLs", () => {
     expect(() => validateExternalApplicationUrl("javascript:alert(1)")).toThrow();
     expect(() => validateExternalApplicationUrl("http://127.0.0.1/admin")).toThrow();
+    expect(() => validateExternalApplicationUrl("http://[::1]/admin")).toThrow();
+    expect(() => validateExternalApplicationUrl("http://service.internal/")).toThrow();
   });
 
   it("persists Manual Assist and does not retry when CAPTCHA is detected", async () => {
