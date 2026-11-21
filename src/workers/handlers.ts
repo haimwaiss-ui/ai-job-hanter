@@ -283,6 +283,10 @@ async function processAi(
   if (!analysis.success) {
     throw new PermanentWorkerError("AI_RESPONSE_SCHEMA_INVALID", "The AI response did not match the required schema.");
   }
+  if (payload.mode === "tailor_resume" &&
+      (!analysis.data.coverLetter || !analysis.data.tailoredResumeBullets?.length)) {
+    throw new PermanentWorkerError("AI_TAILORING_INCOMPLETE", "The AI response did not include the requested tailoring output.");
+  }
 
   const aiAnalysis = {
     provider: "openai",
