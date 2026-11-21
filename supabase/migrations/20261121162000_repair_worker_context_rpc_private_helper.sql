@@ -1,5 +1,5 @@
 -- Repair worker RPCs after moving the session guard into the private schema.
--- These functions run with the caller's authenticated JWT; they never use service_role.
+-- These functions run with the caller's authenticated JWT and rely on RLS.
 begin;
 
 create or replace function public.worker_current_context()
