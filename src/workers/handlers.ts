@@ -15,6 +15,7 @@ import {
   executeSubmissionWithFallback,
   ManualAssistRequiredError,
   markSubmissionManualAssist,
+  PermanentSubmissionError,
 } from "@/lib/workers/submission";
 
 const aiAnalysisResultSchema = z.object({
@@ -25,6 +26,11 @@ const aiAnalysisResultSchema = z.object({
   summary: z.string().trim().min(1).max(3000),
   coverLetter: z.string().trim().max(6000).optional(),
   tailoredResumeBullets: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+}).strict();
+
+const submissionAdapterResultSchema = z.object({
+  submitted: z.literal(true),
+  externalApplicationId: z.string().trim().min(1).max(200).optional(),
 }).strict();
 
 const openAiEnvelopeSchema = z.object({
@@ -344,8 +350,9 @@ interface SubmissionAdapterModule {
     supabase: WorkerHandlerContext["supabase"];
     userId: string;
     applicationId: string;
+    idempotencyKey: string;
     signal: AbortSignal;
-  }): Promise<void>;
+  }): Promise<unknown>;
 }
 
 async function loadSubmissionAdapter(modulePath: string): Promise<SubmissionAdapterModule> {
@@ -382,17 +389,67 @@ async function submitApplication(
   }
 
   const adapter = await loadSubmissionAdapter(adapterPath);
-  await executeSubmissionWithFallback(context.supabase, {
-    userId: context.userId,
-    applicationId: payload.applicationId,
-    signal: context.signal,
-    submit: (signal) => adapter.submitApplication({
-      supabase: context.supabase,
+  const { error: transitionError } = await context.supabase.from("applications")
+    .update({ status: "submitting", updated_at: new Date().toISOString() })
+    .eq("id", payload.applicationId)
+    .eq("user_id", context.userId)
+    .in("status", ["approved", "ready_to_submit", "submitting"]);
+  if (transitionError) throw new Error("Unable to reserve the approved application for submission");
+
+  let externalApplicationId: string | null = null;
+  try {
+    await executeSubmissionWithFallback(context.supabase, {
       userId: context.userId,
       applicationId: payload.applicationId,
-      signal,
-    }),
-  });
+      signal: context.signal,
+      submit: async (signal) => {
+        const rawResult = await adapter.submitApplication({
+          supabase: context.supabase,
+          userId: context.userId,
+          applicationId: payload.applicationId,
+          idempotencyKey: payload.idempotencyKey,
+          signal,
+        });
+        const parsedResult = submissionAdapterResultSchema.safeParse(rawResult);
+        if (!parsedResult.success) {
+          throw new Error("Submission adapter did not confirm a completed application");
+        }
+        externalApplicationId = parsedResult.data.externalApplicationId ?? null;
+      },
+    });
+  } catch (error) {
+    if (error instanceof ManualAssistRequiredError) throw error;
+    if (error instanceof PermanentSubmissionError) {
+      await context.supabase.from("applications")
+        .update({ status: "failed", last_error: "Required submission data is invalid", updated_at: new Date().toISOString() })
+        .eq("id", payload.applicationId)
+        .eq("user_id", context.userId);
+      throw error;
+    }
+
+    // A timeout or network error may happen after the external form accepted the
+    // application. Never retry an ambiguous external side effect automatically.
+    await markSubmissionManualAssist(context.supabase, context.userId, payload.applicationId);
+    throw new ManualAssistRequiredError("manual_required");
+  }
+
+  const { error: completionError } = await context.supabase.from("applications")
+    .update({
+      status: "submitted",
+      applied_at: new Date().toISOString(),
+      external_application_id: externalApplicationId,
+      manual_assist_required: false,
+      last_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", payload.applicationId)
+    .eq("user_id", context.userId)
+    .eq("status", "submitting");
+  if (completionError) {
+    // The adapter receives the stable idempotency key so a retry can reconcile
+    // this final database write without submitting a second application.
+    throw new Error("External submission completed but application status could not be saved");
+  }
 }
 
 export function createWorkerHandlers(
@@ -409,4 +466,4 @@ export function createWorkerHandlers(
   };
 }
 
-export { aiAnalysisResultSchema };
+export { aiAnalysisResultSchema, submissionAdapterResultSchema };
