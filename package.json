@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "worker": "tsx src/workers/main.ts",
+    "worker:provision": "tsx scripts/provision-worker-session.ts",
     "test:unit": "vitest run --exclude tests/integration/**",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit"
