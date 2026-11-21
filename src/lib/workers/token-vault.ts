@@ -97,9 +97,13 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
       const result = await this.secrets.send(new GetSecretValueCommand({ SecretId: secretId }));
       if (!result.SecretString) throw new Error("Missing secret value");
       const parsed = vaultSessionSchema.safeParse(JSON.parse(result.SecretString));
+      if (!parsed.success) throw new Error("Vault identity mismatch");
+      const claims = extractWorkerSessionClaims(parsed.data.accessToken);
       if (
-        !parsed.success ||
         parsed.data.userId !== expectedUserId ||
+        claims.userId !== expectedUserId ||
+        claims.sessionId !== parsed.data.sessionId ||
+        !claims.worker ||
         extractAuthSessionId(parsed.data.accessToken) !== parsed.data.sessionId
       ) {
         throw new Error("Vault identity mismatch");
@@ -147,10 +151,15 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
         throw new Error("Worker session refresh failed");
       }
 
-      const sessionId = extractAuthSessionId(data.session.access_token);
-      if (sessionId !== current.sessionId) {
-        throw new Error("Worker Auth session changed during refresh");
+      const refreshedClaims = extractWorkerSessionClaims(data.session.access_token);
+      if (
+        refreshedClaims.userId !== userId ||
+        refreshedClaims.sessionId !== current.sessionId ||
+        !refreshedClaims.worker
+      ) {
+        throw new Error("Worker Auth session changed or lost its worker claim");
       }
+      const sessionId = refreshedClaims.sessionId;
 
       const refreshed = vaultSessionSchema.parse({
         userId,

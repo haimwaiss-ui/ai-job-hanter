@@ -21,6 +21,11 @@ describe("submission safety and CAPTCHA fallback", () => {
     expect(classifySubmissionFailure(new Error("Access Denied - unusual traffic"))).toBe("site_blocked");
   });
 
+  it("uses a stable manual-assist code when no approved adapter is available", () => {
+    const error = new ManualAssistRequiredError("manual_required");
+    expect(error.code).toBe("MANUAL_ASSIST_REQUIRED");
+  });
+
   it("preserves a private PDF storage path and direct application URL", () => {
     const patch = buildManualAssistPatch({
       applicationUrl: "https://jobs.example/apply/123",
@@ -37,6 +42,8 @@ describe("submission safety and CAPTCHA fallback", () => {
   it("rejects unsafe application URLs", () => {
     expect(() => validateExternalApplicationUrl("javascript:alert(1)")).toThrow();
     expect(() => validateExternalApplicationUrl("http://127.0.0.1/admin")).toThrow();
+    expect(() => validateExternalApplicationUrl("http://[::1]/admin")).toThrow();
+    expect(() => validateExternalApplicationUrl("http://service.internal/")).toThrow();
   });
 
   it("persists Manual Assist and does not retry when CAPTCHA is detected", async () => {

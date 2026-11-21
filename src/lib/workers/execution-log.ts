@@ -16,7 +16,7 @@ export function toSafeWorkerError(error: unknown): SafeWorkerError {
   if (code === "WORKER_TIMEOUT") {
     return { code, message: "Background operation exceeded its time limit." };
   }
-  if (code === "CAPTCHA_DETECTED" || code === "SITE_BLOCKED" || code === "AUTH_REQUIRED") {
+  if (code === "CAPTCHA_DETECTED" || code === "SITE_BLOCKED" || code === "AUTH_REQUIRED" || code === "MANUAL_ASSIST_REQUIRED") {
     return { code, message: "Automated submission paused; human assistance is required." };
   }
   return { code, message: "Background operation failed. A retry or manual review may follow." };

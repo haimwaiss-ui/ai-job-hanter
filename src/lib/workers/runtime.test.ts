@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_JOB_OPTIONS } from "@/lib/queues/queues";
-import { closeWorkerResources } from "./runtime";
+import { closeWorkerResources, PermanentWorkerError } from "./runtime";
+import { toSafeWorkerError } from "./execution-log";
 
 describe("worker runtime controls", () => {
   it("uses bounded exponential retries with jitter", () => {
@@ -9,6 +10,14 @@ describe("worker runtime controls", () => {
       type: "exponential",
       delay: 2_000,
       jitter: 0.5,
+    });
+  });
+
+  it("marks missing provider configuration as a permanent, sanitized failure", () => {
+    const error = new PermanentWorkerError("OPENAI_NOT_CONFIGURED", "The AI provider is not configured.");
+    expect(toSafeWorkerError(error)).toEqual({
+      code: "OPENAI_NOT_CONFIGURED",
+      message: "Background operation failed. A retry or manual review may follow.",
     });
   });
 
