@@ -2,6 +2,8 @@
 
 ## Runtime entry point
 
+Run `npm run worker` on a dedicated long-lived Node.js worker host (for example, a container service). A Vercel Next.js deployment does not keep a BullMQ process alive; do not treat a successful web build as worker availability.
+
 The repository has typed BullMQ queues in `src/lib/queues/queues.ts`, strict Zod payload contracts in `src/lib/queues/contracts.ts`, tenant-scoped idempotency in `src/lib/workers/idempotency.ts`, API ingress in `src/lib/queues/enqueue.ts`, and the worker runtime in `src/lib/workers/runtime.ts`.
 
 `npm run worker` starts `src/workers/main.ts`. Unless an operator explicitly sets `WORKER_HANDLER_MODULE`, the runtime loads the built-in `src/workers/handlers.ts` module.
