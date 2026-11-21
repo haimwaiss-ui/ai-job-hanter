@@ -334,14 +334,24 @@ async function processAi(
       .eq("user_id", context.userId);
     if (error) throw new Error("Unable to save tenant AI analysis");
   } else {
-    const { error } = await context.supabase.from("applications").insert({
-      user_id: context.userId,
-      job_id: payload.jobId,
-      resume_id: payload.resumeId,
-      status: nextStatus,
-      ...patch,
-    });
-    if (error) throw new Error("Unable to create tenant AI application");
+    // The database deliberately grants only the minimal INSERT columns.
+    // Create the tenant-owned application first, then write AI fields through
+    // the separate worker-only UPDATE policy and its column-level grants.
+    const { data: created, error: insertError } = await context.supabase.from("applications")
+      .insert({
+        user_id: context.userId,
+        job_id: payload.jobId,
+        resume_id: payload.resumeId,
+      })
+      .select("id")
+      .single();
+    if (insertError || !created) throw new Error("Unable to create tenant AI application");
+
+    const { error: updateError } = await context.supabase.from("applications")
+      .update({ ...patch, status: nextStatus })
+      .eq("id", created.id)
+      .eq("user_id", context.userId);
+    if (updateError) throw new Error("Unable to save tenant AI analysis");
   }
 }
 
