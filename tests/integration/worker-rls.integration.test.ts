@@ -43,6 +43,11 @@ describe.skipIf(!enabled)("Supabase tenant RLS integration", () => {
     }
     userA = authA.user.id;
     userB = authB.user.id;
+
+    const { data: workerContext, error: workerContextError } = await clientA.rpc("worker_current_context");
+    expect(workerContextError).toBeNull();
+    expect(workerContext?.[0]?.user_id).toBe(userA);
+    expect(workerContext?.[0]?.worker_enabled).toBe(false);
   });
 
   afterAll(async () => {
