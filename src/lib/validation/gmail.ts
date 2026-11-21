@@ -29,3 +29,11 @@ export const gmailMessageSchema = z.object({
     }).strip()).max(50).optional(),
   }).strip().optional(),
 }).strip();
+
+export const googleOAuthCodeResponseSchema = z.object({
+  access_token: z.string().min(20).max(8192),
+  refresh_token: z.string().min(20).max(8192),
+  expires_in: z.number().int().positive().max(86_400).optional(),
+  scope: z.string().max(2048).optional(),
+  token_type: z.string().max(32).optional(),
+}).strip();
