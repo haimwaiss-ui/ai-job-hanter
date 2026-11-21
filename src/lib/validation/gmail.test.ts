@@ -4,6 +4,7 @@ import {
   gmailMessageSchema,
   gmailScanRequestSchema,
   googleRefreshTokenResponseSchema,
+  googleOAuthCodeResponseSchema,
 } from "./gmail";
 
 describe("Gmail scan validation", () => {
@@ -11,6 +12,19 @@ describe("Gmail scan validation", () => {
     expect(gmailScanRequestSchema.safeParse({}).success).toBe(true);
     expect(gmailScanRequestSchema.safeParse({ user_id: "attacker" }).success).toBe(false);
     expect(gmailScanRequestSchema.safeParse("scan").success).toBe(false);
+  });
+
+  it("requires a bounded refresh token in the OAuth code exchange response", () => {
+    expect(googleOAuthCodeResponseSchema.safeParse({
+      access_token: "a".repeat(32),
+      refresh_token: "r".repeat(32),
+      expires_in: 3600,
+      scope: "https://www.googleapis.com/auth/gmail.readonly",
+    }).success).toBe(true);
+    expect(googleOAuthCodeResponseSchema.safeParse({
+      access_token: "a".repeat(32),
+      refresh_token: "",
+    }).success).toBe(false);
   });
 
   it("validates Google refresh responses and strips unknown fields", () => {
