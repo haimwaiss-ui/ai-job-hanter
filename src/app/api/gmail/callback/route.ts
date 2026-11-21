@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     const parsedTokens = googleOAuthCodeResponseSchema.safeParse(tokenBody);
     if (!parsedTokens.success ||
         (parsedTokens.data.scope !== undefined &&
-          !parsedTokens.data.scope.split(/\\s+/).includes(GMAIL_READONLY_SCOPE))) {
+          !parsedTokens.data.scope.split(/\s+/).includes(GMAIL_READONLY_SCOPE))) {
       return fail(origin, "Google החזירה הרשאה לא תקינה או ללא הרשאת Gmail לקריאה בלבד.");
     }
     refreshToken = parsedTokens.data.refresh_token;
