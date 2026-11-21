@@ -41,6 +41,36 @@ const openAiEnvelopeSchema = z.object({
 
 export type AiAnalysisResult = z.infer<typeof aiAnalysisResultSchema>;
 
+export async function createTenantApplicationWithAiAnalysis(
+  supabase: WorkerHandlerContext["supabase"],
+  input: {
+    userId: string;
+    jobId: string;
+    resumeId: string;
+    nextStatus: Database["public"]["Enums"]["application_status"];
+    patch: Database["public"]["Tables"]["applications"]["Update"];
+  },
+): Promise<void> {
+  // The live schema grants only the tenant ownership columns on INSERT.
+  // AI analysis and status fields are written separately through the worker
+  // UPDATE policy, still using this user's JWT and RLS.
+  const { data: created, error: insertError } = await supabase.from("applications")
+    .insert({
+      user_id: input.userId,
+      job_id: input.jobId,
+      resume_id: input.resumeId,
+    })
+    .select("id")
+    .single();
+  if (insertError || !created) throw new Error("Unable to create tenant AI application");
+
+  const { error: updateError } = await supabase.from("applications")
+    .update({ ...input.patch, status: input.nextStatus })
+    .eq("id", created.id)
+    .eq("user_id", input.userId);
+  if (updateError) throw new Error("Unable to save tenant AI analysis");
+}
+
 export interface WorkerHandlerDependencies {
   fetcher?: typeof fetch;
   tavilyApiKey?: string;
@@ -334,14 +364,13 @@ async function processAi(
       .eq("user_id", context.userId);
     if (error) throw new Error("Unable to save tenant AI analysis");
   } else {
-    const { error } = await context.supabase.from("applications").insert({
-      user_id: context.userId,
-      job_id: payload.jobId,
-      resume_id: payload.resumeId,
-      status: nextStatus,
-      ...patch,
+    await createTenantApplicationWithAiAnalysis(context.supabase, {
+      userId: context.userId,
+      jobId: payload.jobId,
+      resumeId: payload.resumeId,
+      nextStatus,
+      patch,
     });
-    if (error) throw new Error("Unable to create tenant AI application");
   }
 }
 
