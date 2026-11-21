@@ -23,9 +23,9 @@ describe("worker context RPC migration", () => {
     expect(migration).toContain("current_user_id := auth.uid()");
     expect(migration).toContain("private.is_active_worker_session() is not true");
     expect(migration).toContain("to authenticated");
-    expect(migration).toMatch(/revoke\\s+all\\s+on\\s+function\\s+public\\.worker_current_context\\(\\)\\s+from\\s+public,\\s*anon,\\s*authenticated,\\s*service_role/i);
-    expect(migration).toMatch(/revoke\\s+all\\s+on\\s+function\\s+public\\.claim_worker_operation\\([^)]*\\)\\s+from\\s+public,\\s*anon,\\s*authenticated,\\s*service_role/i);
-    expect(migration).not.toMatch(/grant\\s+execute[\\s\\S]*?to\\s+service_role/i);
-    expect(migration).not.toMatch(/security\\s+definer/i);
+    expect(migration).toMatch(/revoke\s+all\s+on\s+function\s+public\.worker_current_context\(\)\s+from\s+public,\s*anon,\s*authenticated,\s*service_role/i);
+    expect(migration).toMatch(/revoke\s+all\s+on\s+function\s+public\.claim_worker_operation\([^)]*\)\s+from\s+public,\s*anon,\s*authenticated,\s*service_role/i);
+    expect(migration).not.toMatch(/grant\s+execute[\s\S]*?to\s+service_role/i);
+    expect(migration).not.toMatch(/security\s+definer/i);
   });
 });
