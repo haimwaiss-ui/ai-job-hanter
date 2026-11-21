@@ -95,17 +95,20 @@ async function scrapeJobs(
     .maybeSingle();
   if (profileError) throw new Error("Unable to load the tenant search profile");
 
-  const terms = [
+  const roleTerms = [
     profile?.headline,
     ...(profile?.skills ?? []),
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (roleTerms.length === 0) {
+    throw new PermanentWorkerError("JOB_SEARCH_PROFILE_EMPTY", "Add a role or skills before scanning for jobs.");
+  }
+
+  const terms = [
+    ...roleTerms,
     ...(profile?.preferred_locations ?? []),
     profile?.location,
     "Israel",
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-  if (terms.length === 1) {
-    throw new PermanentWorkerError("JOB_SEARCH_PROFILE_EMPTY", "Add a role or skills before scanning for jobs.");
-  }
-
   const group = workerSearchGroupForSource(payload.source);
   const result = await searchTavilyGroup(apiKey, group, terms.join(" ").slice(0, 500), context.signal, dependencies.fetcher);
   if (result.error !== undefined) {
