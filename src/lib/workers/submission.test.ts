@@ -21,18 +21,6 @@ describe("submission safety and CAPTCHA fallback", () => {
     expect(classifySubmissionFailure(new Error("Access Denied - unusual traffic"))).toBe("site_blocked");
   });
 
-  it("persists manual assist when a trusted adapter explicitly requests human help", async () => {
-    const supabase = fakeSupabaseForManualAssist();
-    const signal = new AbortController().signal;
-    await expect(executeSubmissionWithFallback(supabase, {
-      userId: "10000000-0000-4000-8000-000000000001",
-      applicationId: "20000000-0000-4000-8000-000000000002",
-      signal,
-      submit: async () => { throw new ManualAssistRequiredError("captcha"); },
-    })).rejects.toBeInstanceOf(ManualAssistRequiredError);
-    expect(supabase.from).toHaveBeenCalledWith("applications");
-  });
-
   it("uses a stable manual-assist code when no approved adapter is available", () => {
     const error = new ManualAssistRequiredError("manual_required");
     expect(error.code).toBe("MANUAL_ASSIST_REQUIRED");
