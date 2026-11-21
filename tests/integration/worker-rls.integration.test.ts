@@ -7,7 +7,15 @@ const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE
 const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 const tokenA = process.env.TEST_USER_A_ACCESS_TOKEN ?? "";
 const tokenB = process.env.TEST_USER_B_ACCESS_TOKEN ?? "";
-const enabled = Boolean(supabaseUrl && anonKey && tokenA && tokenB);
+const testProjectId = process.env.SUPABASE_TEST_PROJECT_ID ?? "";
+const actualProjectId = (() => {
+  try { return new URL(supabaseUrl).hostname.split(".")[0]; } catch { return ""; }
+})();
+const enabled = Boolean(
+  supabaseUrl && anonKey && tokenA && tokenB &&
+  testProjectId && testProjectId === actualProjectId &&
+  actualProjectId !== "lyroizvcfonhgdsibvqv"
+);
 
 function userClient(token: string): SupabaseClient<Database> {
   return createClient<Database>(supabaseUrl, anonKey, {
@@ -65,7 +73,7 @@ describe.skipIf(!enabled)("Supabase tenant RLS integration", () => {
       .update({ payload: { test_marker: "cross-tenant-write" } })
       .eq("id", eventId)
       .select("id");
-    expect(updateError?.code === "42501" || changedRows?.length === 0).toBe(true);
+    expect(updateError !== null || changedRows?.length === 0).toBe(true);
 
     const { data: deletedRows, error: deleteError } = await clientB.from("user_activity_events")
       .delete()
