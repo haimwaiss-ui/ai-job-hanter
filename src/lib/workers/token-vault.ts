@@ -97,9 +97,13 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
       const result = await this.secrets.send(new GetSecretValueCommand({ SecretId: secretId }));
       if (!result.SecretString) throw new Error("Missing secret value");
       const parsed = vaultSessionSchema.safeParse(JSON.parse(result.SecretString));
+      if (!parsed.success) throw new Error("Vault identity mismatch");
+      const claims = extractWorkerSessionClaims(parsed.data.accessToken);
       if (
-        !parsed.success ||
         parsed.data.userId !== expectedUserId ||
+        claims.userId !== expectedUserId ||
+        claims.sessionId !== parsed.data.sessionId ||
+        !claims.worker ||
         extractAuthSessionId(parsed.data.accessToken) !== parsed.data.sessionId
       ) {
         throw new Error("Vault identity mismatch");
@@ -147,10 +151,15 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
         throw new Error("Worker session refresh failed");
       }
 
-      const sessionId = extractAuthSessionId(data.session.access_token);
-      if (sessionId !== current.sessionId) {
-        throw new Error("Worker Auth session changed during refresh");
+      const refreshedClaims = extractWorkerSessionClaims(data.session.access_token);
+      if (
+        refreshedClaims.userId !== userId ||
+        refreshedClaims.sessionId !== current.sessionId ||
+        !refreshedClaims.worker
+      ) {
+        throw new Error("Worker Auth session changed or lost its worker claim");
       }
+      const sessionId = refreshedClaims.sessionId;
 
       const refreshed = vaultSessionSchema.parse({
         userId,
@@ -181,4 +190,28 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Validate the identity and privilege claims used only during trusted provisioning. */
+export function extractWorkerSessionClaims(accessToken: string): {
+  userId: string;
+  sessionId: string;
+  worker: boolean;
+} {
+  const parts = accessToken.split(".");
+  if (parts.length !== 3) throw new Error("Invalid worker access token");
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as {
+      sub?: unknown;
+      session_id?: unknown;
+      worker?: unknown;
+    };
+    return {
+      userId: z.string().uuid().parse(payload.sub),
+      sessionId: z.string().uuid().parse(payload.session_id),
+      worker: payload.worker === true,
+    };
+  } catch {
+    throw new Error("Invalid worker access token");
+  }
 }
