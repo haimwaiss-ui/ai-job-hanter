@@ -1,8 +1,11 @@
+import { loadEnvConfig } from "@next/env";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRedisConnection } from "@/lib/queues/connection";
 import { AwsSecretsManagerTokenVault } from "@/lib/workers/token-vault";
 import { createWorkerRuntime, type WorkerHandlers } from "@/lib/workers/runtime";
+
+loadEnvConfig(process.cwd());
 
 async function main(): Promise<void> {
   const handlerModulePath = process.env.WORKER_HANDLER_MODULE ??
