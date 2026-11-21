@@ -26,8 +26,8 @@ type GmailMessage = ReturnType<typeof gmailMessageSchema.parse>;
 
 function cleanText(value: string, maxLength: number): string {
   return value
-    .replace(/[\\u0000-\\u001f\\u007f]/g, " ")
-    .replace(/\\s+/g, " ")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
 }
