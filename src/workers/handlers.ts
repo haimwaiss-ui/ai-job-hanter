@@ -378,7 +378,7 @@ async function submitApplication(
   if (error || !application) {
     throw new PermanentWorkerError("APPLICATION_NOT_FOUND", "The application is not owned by this user.");
   }
-  if (application.status !== "approved" && application.status !== "ready_to_submit") {
+  if (application.status !== "approved" && application.status !== "ready_to_submit" && application.status !== "submitting") {
     throw new PermanentWorkerError("APPLICATION_NOT_APPROVED", "The application has not been approved for submission.");
   }
 
@@ -389,12 +389,16 @@ async function submitApplication(
   }
 
   const adapter = await loadSubmissionAdapter(adapterPath);
-  const { error: transitionError } = await context.supabase.from("applications")
+  const { data: reserved, error: transitionError } = await context.supabase.from("applications")
     .update({ status: "submitting", updated_at: new Date().toISOString() })
     .eq("id", payload.applicationId)
     .eq("user_id", context.userId)
-    .in("status", ["approved", "ready_to_submit", "submitting"]);
-  if (transitionError) throw new Error("Unable to reserve the approved application for submission");
+    .in("status", ["approved", "ready_to_submit", "submitting"])
+    .select("id")
+    .maybeSingle();
+  if (transitionError || !reserved) {
+    throw new PermanentWorkerError("APPLICATION_NOT_READY", "The application is no longer ready for submission.");
+  }
 
   let externalApplicationId: string | null = null;
   try {
@@ -433,7 +437,7 @@ async function submitApplication(
     throw new ManualAssistRequiredError("manual_required");
   }
 
-  const { error: completionError } = await context.supabase.from("applications")
+  const { data: completed, error: completionError } = await context.supabase.from("applications")
     .update({
       status: "submitted",
       applied_at: new Date().toISOString(),
@@ -444,8 +448,10 @@ async function submitApplication(
     })
     .eq("id", payload.applicationId)
     .eq("user_id", context.userId)
-    .eq("status", "submitting");
-  if (completionError) {
+    .eq("status", "submitting")
+    .select("id")
+    .maybeSingle();
+  if (completionError || !completed) {
     // The adapter receives the stable idempotency key so a retry can reconcile
     // this final database write without submitting a second application.
     throw new Error("External submission completed but application status could not be saved");
