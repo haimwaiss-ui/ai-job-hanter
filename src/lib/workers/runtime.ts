@@ -42,6 +42,13 @@ type WorkerOperationStatus =
   | "failed"
   | "manual_assist";
 
+export class PermanentWorkerError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+    this.name = "PermanentWorkerError";
+  }
+}
+
 export interface WorkerHandlerContext {
   supabase: SupabaseClient<Database>;
   userId: string;
@@ -345,7 +352,7 @@ function createTypedWorker<P extends WorkerPayload>(
           const configuredAttempts = typeof job.opts.attempts === "number"
             ? job.opts.attempts
             : Number(DEFAULT_JOB_OPTIONS.attempts ?? 5);
-          const permanent = error instanceof PermanentSubmissionError;
+          const permanent = error instanceof PermanentSubmissionError || error instanceof PermanentWorkerError;
           const finalAttempt = permanent || attempt >= configuredAttempts;
           const status: WorkerOperationStatus = finalAttempt ? "failed" : "retrying";
 
@@ -392,6 +399,7 @@ function createTypedWorker<P extends WorkerPayload>(
           });
 
           // Only a sanitized, static message reaches BullMQ's Redis failedReason.
+          if (permanent) throw new UnrecoverableError(safe.message);
           throw new Error(safe.message);
         }
       },
