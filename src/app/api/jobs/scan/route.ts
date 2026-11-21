@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { jobScanRequestSchema, tavilySearchResponseSchema, type TavilySearchResult } from "@/lib/validation/job-hunter";
 import { hasJsonContentType, isSameOriginMutation, contentLengthExceeds, MAX_JSON_BODY_BYTES } from "@/lib/http/request-guards";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-type SearchResult = {
-  title?: string;
-  url?: string;
-  content?: string;
-  score?: number;
-  published_date?: string;
-};
+type SearchResult = TavilySearchResult;
 
 type SearchGroup = {
   id: "job_boards" | "linkedin" | "facebook" | "x" | "web";
@@ -67,6 +62,7 @@ function normalizeUrl(value: string): string | null {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.username || url.password) return null;
     url.hash = "";
     for (const key of [...url.searchParams.keys()]) {
       if (/^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$)/i.test(key)) url.searchParams.delete(key);
@@ -103,11 +99,10 @@ async function searchGroup(
   });
 
   if (!response.ok) return { group, results: [], error: response.status };
-  const data = await response.json() as { results?: SearchResult[] };
-  return {
-    group,
-    results: (data.results ?? []).filter((item) => item.url && item.title),
-  };
+  const body: unknown = await response.json().catch(() => null);
+  const parsed = tavilySearchResponseSchema.safeParse(body);
+  if (!parsed.success) return { group, results: [], error: 502 };
+  return { group, results: parsed.data.results };
 }
 
 export async function POST(request: Request) {
@@ -133,13 +128,26 @@ export async function POST(request: Request) {
     }, { status: 503 });
   }
 
-  const body = await request.json().catch(() => ({})) as { query?: unknown };
-  const requestedQuery = typeof body.query === "string" ? body.query.trim().slice(0, 240) : "";
-  const { data: profile } = await supabase
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+  const parsedBody = jobScanRequestSchema.safeParse(body);
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "Invalid job search query" }, { status: 422 });
+  }
+  const requestedQuery = parsedBody.data.query ?? "";
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("headline,location,skills")
     .eq("user_id", user.id)
     .maybeSingle();
+
+  if (profileError) {
+    return NextResponse.json({ error: "Unable to load search profile" }, { status: 500 });
+  }
 
   const roleAndSkills = [
     requestedQuery,

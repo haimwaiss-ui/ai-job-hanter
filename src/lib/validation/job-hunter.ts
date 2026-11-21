@@ -142,6 +142,30 @@ export const preferencesUpdateSchema = z.object({
   require_approval: z.boolean().optional(),
 }).strict();
 
+const safeSearchQuery = z.string().trim().max(240).refine(
+  (value) => !/[\u0000-\u001f\u007f]/.test(value),
+  "Search query contains unsupported control characters",
+);
+
+export const jobScanRequestSchema = z.object({
+  query: safeSearchQuery.optional(),
+}).strict();
+
+/** Validates untrusted provider output before any result is persisted or linked. */
+export const tavilySearchResultSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  url: httpUrl,
+  content: z.string().max(12_000).optional(),
+  score: z.number().finite().min(0).max(1).optional(),
+  published_date: z.string().max(80).optional(),
+}).strip();
+
+export const tavilySearchResponseSchema = z.object({
+  results: z.array(tavilySearchResultSchema).max(100),
+}).passthrough();
+
+export type TavilySearchResult = z.infer<typeof tavilySearchResultSchema>;
+
 export const activityEventSchema = z.object({
   event_type: z.enum([
     "job_opened",
