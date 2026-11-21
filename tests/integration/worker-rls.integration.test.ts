@@ -29,7 +29,8 @@ describe.skipIf(!enabled)("Supabase tenant RLS integration", () => {
   let clientB: SupabaseClient<Database>;
   let userA = "";
   let userB = "";
-  let eventId: string | null = null;
+  let resumeId: string | null = null;
+  let storagePath: string | null = null;
 
   beforeAll(async () => {
     clientA = userClient(tokenA);
@@ -51,47 +52,70 @@ describe.skipIf(!enabled)("Supabase tenant RLS integration", () => {
   });
 
   afterAll(async () => {
-    if (eventId && clientA && userA) {
-      await clientA.from("user_activity_events").delete().eq("id", eventId).eq("user_id", userA);
+    if (resumeId && clientA && userA) {
+      await clientA.from("resumes").delete().eq("id", resumeId).eq("user_id", userA);
+    }
+    if (storagePath && clientA) {
+      await clientA.storage.from("resumes").remove([storagePath]);
     }
   });
 
-  it("hides another tenant's activity and blocks cross-tenant update/delete", async () => {
-    const marker = "worker-rls-" + randomUUID();
-    const { data: event, error: insertError } = await clientA.from("user_activity_events").insert({
+  it("isolates resume metadata and private PDF objects by tenant", async () => {
+    const marker = randomUUID();
+    storagePath = userA + "/worker-rls-" + marker + ".pdf";
+    const pdf = new Blob(["%PDF-1.4\n% worker RLS fixture\n%%EOF"], { type: "application/pdf" });
+
+    const { error: uploadError } = await clientA.storage.from("resumes").upload(storagePath, pdf, {
+      contentType: "application/pdf",
+      upsert: false,
+    });
+    expect(uploadError).toBeNull();
+
+    const { data: resume, error: insertError } = await clientA.from("resumes").insert({
       user_id: userA,
-      event_type: "job_search",
-      payload: { test_marker: marker },
+      name: "RLS integration fixture",
+      original_filename: "worker-rls-fixture.pdf",
+      storage_bucket: "resumes",
+      storage_path: storagePath,
+      mime_type: "application/pdf",
+      file_size_bytes: pdf.size,
     }).select("id").single();
 
     expect(insertError).toBeNull();
-    expect(event?.id).toBeTruthy();
-    eventId = event!.id;
+    expect(resume?.id).toBeTruthy();
+    resumeId = resume!.id;
 
-    const { data: leakedRows, error: readError } = await clientB.from("user_activity_events")
+    const { data: leakedRows, error: readError } = await clientB.from("resumes")
       .select("id")
-      .eq("id", eventId);
+      .eq("id", resumeId);
     expect(readError).toBeNull();
     expect(leakedRows).toEqual([]);
 
-    const { data: changedRows, error: updateError } = await clientB.from("user_activity_events")
-      .update({ payload: { test_marker: "cross-tenant-write" } })
-      .eq("id", eventId)
+    const { data: changedRows, error: updateError } = await clientB.from("resumes")
+      .update({ name: "cross-tenant-write" })
+      .eq("id", resumeId)
       .select("id");
-    expect(updateError !== null || changedRows?.length === 0).toBe(true);
+    expect(updateError).toBeNull();
+    expect(changedRows).toEqual([]);
 
-    const { data: deletedRows, error: deleteError } = await clientB.from("user_activity_events")
+    const { data: deletedRows, error: deleteError } = await clientB.from("resumes")
       .delete()
-      .eq("id", eventId)
+      .eq("id", resumeId)
       .select("id");
     expect(deleteError).toBeNull();
     expect(deletedRows).toEqual([]);
 
-    const { data: ownerRows, error: ownerError } = await clientA.from("user_activity_events")
-      .select("id,payload")
-      .eq("id", eventId);
+    const { data: leakedFile, error: storageReadError } = await clientB.storage
+      .from("resumes")
+      .download(storagePath);
+    expect(storageReadError).not.toBeNull();
+    expect(leakedFile).toBeNull();
+
+    const { data: ownerRows, error: ownerError } = await clientA.from("resumes")
+      .select("id,name")
+      .eq("id", resumeId);
     expect(ownerError).toBeNull();
     expect(ownerRows).toHaveLength(1);
-    expect(ownerRows?.[0].payload).toEqual({ test_marker: marker });
+    expect(ownerRows?.[0].name).toBe("RLS integration fixture");
   });
 });
