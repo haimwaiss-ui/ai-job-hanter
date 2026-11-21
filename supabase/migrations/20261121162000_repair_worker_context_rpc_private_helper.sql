@@ -15,7 +15,7 @@ as $$
 $$;
 
 revoke all on function public.worker_current_context()
-  from public, anon;
+  from public, anon, authenticated, service_role;
 grant execute on function public.worker_current_context()
   to authenticated;
 
@@ -85,7 +85,7 @@ end;
 $$;
 
 revoke all on function public.claim_worker_operation(text, text, uuid)
-  from public, anon, authenticated;
+  from public, anon, authenticated, service_role;
 grant execute on function public.claim_worker_operation(text, text, uuid)
   to authenticated;
 
