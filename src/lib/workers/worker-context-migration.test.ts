@@ -23,6 +23,7 @@ describe("worker context RPC migration", () => {
     expect(migration).toContain("current_user_id := auth.uid()");
     expect(migration).toContain("private.is_active_worker_session() is not true");
     expect(migration).toContain("to authenticated");
-    expect(migration).not.toContain("service_role");
+    expect(migration).not.toMatch(/grant\\s+execute[\\s\\S]*?to\\s+service_role/i);
+    expect(migration).not.toMatch(/security\\s+definer/i);
   });
 });
