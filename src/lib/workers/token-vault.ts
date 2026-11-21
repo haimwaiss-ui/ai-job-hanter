@@ -182,3 +182,27 @@ export class AwsSecretsManagerTokenVault implements UserTokenVault {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** Validate the identity and privilege claims used only during trusted provisioning. */
+export function extractWorkerSessionClaims(accessToken: string): {
+  userId: string;
+  sessionId: string;
+  worker: boolean;
+} {
+  const parts = accessToken.split(".");
+  if (parts.length !== 3) throw new Error("Invalid worker access token");
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as {
+      sub?: unknown;
+      session_id?: unknown;
+      worker?: unknown;
+    };
+    return {
+      userId: z.string().uuid().parse(payload.sub),
+      sessionId: z.string().uuid().parse(payload.session_id),
+      worker: payload.worker === true,
+    };
+  } catch {
+    throw new Error("Invalid worker access token");
+  }
+}

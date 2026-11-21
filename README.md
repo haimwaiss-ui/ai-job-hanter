@@ -29,10 +29,10 @@ Apply migrations in order:
 1. `supabase/migrations/001_initial_schema.sql`
 2. `supabase/migrations/002_security_foundation.sql`
 
-Then configure Supabase Auth redirect URLs for the deployed domain and local development. Generate authoritative database types from the live project:
+Then configure Supabase Auth redirect URLs for the deployed domain and local development. Generate authoritative database types from the live project after each migration. The script derives the project ref from NEXT_PUBLIC_SUPABASE_URL or accepts SUPABASE_PROJECT_ID; authenticate the Supabase CLI first with supabase login or SUPABASE_ACCESS_TOKEN:
 
 ```bash
-npx supabase gen types typescript --project-id "$PROJECT_REF" --schema public > src/lib/supabase/database.types.ts
+npm run db:types
 ```
 
 ## Important preview limitations
@@ -57,7 +57,7 @@ The `resumes` bucket is private, limited to PDF files up to 10 MiB, and accepts 
 
 The existing `on_auth_user_created` trigger remains the single profile-provisioning mechanism. It now bounds untrusted signup `full_name` metadata to 160 characters, preserves user-edited profile fields on conflict, synchronizes email changes, and backfills only missing profiles. The browser must not insert a profile separately.
 
-`src/lib/supabase/database.types.ts` was regenerated from the connected live schema after the worker migration. Regenerate it after every schema change with `npx supabase gen types typescript --project-id "$PROJECT_REF" --schema public > src/lib/supabase/database.types.ts`.
+`src/lib/supabase/database.types.ts` was regenerated from the connected live schema after the worker migration. Regenerate it after every schema change with `npm run db:types`.
 
 The broad table ACLs for `anon` and `authenticated` were revoked. Authenticated users receive only the required table reads and column-level writes; RLS remains enabled on every user-owned table. Default privileges for objects created by `postgres` in `public` were also tightened. The management connection cannot change the separate `supabase_admin` default-privilege template, so avoid creating application tables as `supabase_admin` without reviewing their grants.
 
@@ -65,17 +65,17 @@ The broad table ACLs for `anon` and `authenticated` were revoked. Authenticated 
 
 The worker migration creates `worker_sessions`, `worker_operations`, `worker_current_context()`, `claim_worker_operation()`, and `custom_access_token_hook(event jsonb)`. `worker_sessions` is not self-service: authenticated users can read only their own opaque vault reference and cannot insert, update, or delete worker-session rows. The access-token hook binds the `worker` claim to a dedicated `auth_session_id`; do not register a user's normal browser session as a worker session.
 
-Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. A trusted server-side provisioning flow must create a separate Auth session, store its access/refresh tokens plus `sessionId` in AWS Secrets Manager, and insert the matching `worker_sessions` row. That provisioning flow is not implemented yet. The BullMQ runtime also requires Redis, AWS Secrets Manager credentials, and a real module exporting `createWorkerHandlers()`.
+Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. The one-time local script `npm run worker:provision` performs trusted provisioning: it creates a separate passwordless Auth session through the Supabase Admin API, registers it with the service-role client, refreshes it so the custom token hook can issue the worker claim, stores the access/refresh tokens and `sessionId` in AWS Secrets Manager, sets `provisioned_at`, and verifies the worker tenant context. It is idempotent when an active registration and valid vault secret already exist. The service-role key is used only by this local server-side script; never add it to `NEXT_PUBLIC_*` variables or worker queue payloads. The BullMQ runtime also requires Redis, AWS Secrets Manager credentials, and a real module exporting `createWorkerHandlers()`.
 
-Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. No service-role key is used by browser code or queue payloads.
+Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. For local provisioning, also set `SUPABASE_SERVICE_ROLE_KEY` and `WORKER_USER_ID` in `.env.local`. The AWS identity needs Secrets Manager create/get/put/delete permissions for the configured prefix (and KMS permissions if a customer-managed key is used). The service-role key is never used by browser code or queue payloads.
 
 ### Verification
 
-Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database checks, use `npx supabase test db` only after the local migration history is reconciled with the timestamped migrations recorded by the connected project. The repository's original `001`–`004` filenames do not yet mirror the remote timestamp versions, so do not run `supabase db push` blindly.
+Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database checks, use `npx supabase test db` only after the local migration history is reconciled with the timestamped migrations recorded by the connected project. The connected project records 21 timestamped migrations, while the repository currently has 15 short-numbered files. Their filenames do not map to the remote versions, and byte-level comparisons show that at least some local SQL differs from the statements recorded as applied. Six applied versions have no matching local file: `20261114165747` (`repair_authenticated_data_write_permissions`), `20261116144654` (`worker_session_immediate_revocation`), `20261117141833` (`worker_provisioning_lock`), `20261117142311` (`worker_session_provisioned_state`), `20261118064006` (`move_worker_session_guard_to_private_schema`), and `20261118064036` (`rls_policy_performance_cleanup`). Supabase retains the executed SQL in `supabase_migrations.schema_migrations.statements`, so the full history can be reconstructed and diffed. Do not run `supabase db push`, `db reset`, or other migration-writing CLI commands until all versions and SQL files are reconciled.
 
 The live signup trigger was tested in a rolled-back transaction with a 200-character metadata name and created a profile with a 160-character name. Live privilege checks confirmed that profile INSERT, profile email UPDATE, resume parsed-text UPDATE, application status INSERT, and worker-session INSERT/UPDATE/DELETE are denied to `authenticated`. The live Storage bucket is private.
 
-Remaining security work: configure leaked-password protection in Supabase Auth, add malware scanning/quarantine for uploaded PDFs, and implement the trusted worker-session provisioning flow before enabling worker execution.
+Remaining security work: configure leaked-password protection in Supabase Auth, add malware scanning/quarantine for uploaded PDFs, enable the Custom Access Token Hook in Supabase Dashboard, and deploy a real `createWorkerHandlers()` module plus Redis/AWS runtime configuration before enabling worker execution.
 ## Employer workspace, web search, and Gmail
 
 The employer workspace uses the additive migration `009_employer_workspace_and_recruiting_pipeline.sql`; Gmail connections use `008_gmail_readonly_oauth_connections.sql`. Employer records are user-scoped with RLS. Applicant details are not exposed to employers until a candidate explicitly applies.
