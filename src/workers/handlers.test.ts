@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aiAnalysisResultSchema, workerSearchGroupForSource } from "./handlers";
+import { aiAnalysisResultSchema, submissionAdapterResultSchema, workerSearchGroupForSource } from "./handlers";
 
 describe("BullMQ worker handlers", () => {
   it("maps each scraper payload source to a bounded public search group", () => {
@@ -18,6 +18,12 @@ describe("BullMQ worker handlers", () => {
       gaps: [],
       summary: "bad",
     }).success).toBe(false);
+  });
+
+  it("requires explicit success confirmation from a submission adapter", () => {
+    expect(submissionAdapterResultSchema.safeParse({ submitted: true }).success).toBe(true);
+    expect(submissionAdapterResultSchema.safeParse({ submitted: false }).success).toBe(false);
+    expect(submissionAdapterResultSchema.safeParse({ submitted: true, accessToken: "secret" }).success).toBe(false);
   });
 
   it("accepts a bounded evidence-based AI analysis", () => {
