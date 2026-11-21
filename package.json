@@ -10,7 +10,9 @@
     "worker": "tsx src/workers/main.ts",
     "test:unit": "vitest run --exclude tests/integration/**",
     "typecheck": "tsc --noEmit",
-    "test": "npm run test:unit"
+    "test": "npm run test:unit",
+    "db:types": "node scripts/generate-db-types.mjs",
+    "worker:provision": "tsx scripts/provision-worker-session.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
@@ -32,6 +34,7 @@
     "eslint-config-next": "^15.5.0",
     "typescript": "^5.8.0",
     "tsx": "^4.19.2",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "@next/env": "^15.5.0"
   }
 }
