@@ -163,6 +163,10 @@ export async function executeSubmissionWithFallback(
   try {
     await input.submit(input.signal);
   } catch (error) {
+    if (error instanceof ManualAssistRequiredError) {
+      await markSubmissionManualAssist(supabase, input.userId, input.applicationId);
+      throw error;
+    }
     const classification = classifySubmissionFailure(error);
     if (
       classification === "captcha" ||
