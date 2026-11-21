@@ -27,13 +27,13 @@ export async function POST(
 
   const { data: application, error: applicationError } = await supabase
     .from("applications")
-    .select("manual_assist_resume_storage_path")
+    .select("manual_assist_required,manual_assist_resume_storage_path")
     .eq("id", parsedId.data)
     .eq("user_id", authData.user.id)
     .single();
 
   const path = application?.manual_assist_resume_storage_path;
-  if (applicationError || !path ||
+  if (applicationError || application?.manual_assist_required !== true || !path ||
       !path.startsWith(authData.user.id + "/") ||
       path.split("/").some((segment) => segment === "..")) {
     return NextResponse.json({ error: "Resume download is unavailable" }, { status: 404 });
