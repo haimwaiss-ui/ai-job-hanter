@@ -65,8 +65,7 @@ describe.skipIf(!enabled)("Supabase tenant RLS integration", () => {
       .update({ payload: { test_marker: "cross-tenant-write" } })
       .eq("id", eventId)
       .select("id");
-    expect(updateError).toBeNull();
-    expect(changedRows).toEqual([]);
+    expect(updateError?.code === "42501" || changedRows?.length === 0).toBe(true);
 
     const { data: deletedRows, error: deleteError } = await clientB.from("user_activity_events")
       .delete()
