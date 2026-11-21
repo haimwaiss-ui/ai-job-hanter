@@ -54,7 +54,21 @@ export async function POST(request: Request) {
     return jsonError("Request body too large", 413, "BODY_TOO_LARGE");
   }
 
-  const body: unknown = await request.json().catch(() => null);
+  const rawBody = await request.text().catch(() => null);
+  if (rawBody === null) {
+    return jsonError("Invalid JSON body", 400, "INVALID_JSON");
+  }
+  if (Buffer.byteLength(rawBody, "utf8") > MAX_JSON_BODY_BYTES) {
+    return jsonError("Request body too large", 413, "BODY_TOO_LARGE");
+  }
+  let body: unknown = {};
+  if (rawBody.trim().length > 0) {
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return jsonError("Invalid JSON body", 400, "INVALID_JSON");
+    }
+  }
   const parsedBody = gmailScanRequestSchema.safeParse(body);
   if (!parsedBody.success) {
     return jsonError("Invalid Gmail scan request", 422, "INVALID_REQUEST");
@@ -205,6 +219,10 @@ export async function POST(request: Request) {
     for (const result of settled) {
       if (result.status === "fulfilled" && result.value) messages.push(result.value);
     }
+  }
+
+  if (messages.length === 0) {
+    return jsonError("לא ניתן לקרוא את הודעות Gmail כרגע.", 502, "GMAIL_MESSAGES_UNAVAILABLE");
   }
 
   const matches: Array<{
