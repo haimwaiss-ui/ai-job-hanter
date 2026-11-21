@@ -16,12 +16,12 @@ function userClient(token: string): SupabaseClient<Database> {
   });
 }
 
-describe.skipIf(!enabled)("Supabase worker tenant RLS integration", () => {
+describe.skipIf(!enabled)("Supabase tenant RLS integration", () => {
   let clientA: SupabaseClient<Database>;
   let clientB: SupabaseClient<Database>;
   let userA = "";
   let userB = "";
-  let createdJobId: string | null = null;
+  let eventId: string | null = null;
 
   beforeAll(async () => {
     clientA = userClient(tokenA);
@@ -38,37 +38,48 @@ describe.skipIf(!enabled)("Supabase worker tenant RLS integration", () => {
   });
 
   afterAll(async () => {
-    if (createdJobId && clientA && userA) {
-      await clientA.from("jobs").delete().eq("id", createdJobId).eq("user_id", userA);
+    if (eventId && clientA && userA) {
+      await clientA.from("user_activity_events").delete().eq("id", eventId).eq("user_id", userA);
     }
   });
 
-  it("hides another tenant's job and rejects a cross-tenant application foreign key", async () => {
+  it("hides another tenant's activity and blocks cross-tenant update/delete", async () => {
     const marker = "worker-rls-" + randomUUID();
-    const { data: job, error: insertError } = await clientA.from("jobs").insert({
+    const { data: event, error: insertError } = await clientA.from("user_activity_events").insert({
       user_id: userA,
-      title: "RLS integration fixture",
-      company_name: "Private fixture",
-      source: "integration_test",
-      description: marker,
+      event_type: "job_search",
+      payload: { test_marker: marker },
     }).select("id").single();
 
     expect(insertError).toBeNull();
-    expect(job?.id).toBeTruthy();
-    createdJobId = job!.id;
+    expect(event?.id).toBeTruthy();
+    eventId = event!.id;
 
-    const { data: leakedRows, error: readError } = await clientB.from("jobs")
+    const { data: leakedRows, error: readError } = await clientB.from("user_activity_events")
       .select("id")
-      .eq("id", createdJobId);
+      .eq("id", eventId);
     expect(readError).toBeNull();
     expect(leakedRows).toEqual([]);
 
-    const { error: crossTenantInsertError } = await clientB.from("applications").insert({
-      user_id: userB,
-      job_id: createdJobId,
-      resume_id: null,
-    });
-    expect(crossTenantInsertError).not.toBeNull();
-    expect(crossTenantInsertError?.code).toBe("23503");
+    const { data: changedRows, error: updateError } = await clientB.from("user_activity_events")
+      .update({ payload: { test_marker: "cross-tenant-write" } })
+      .eq("id", eventId)
+      .select("id");
+    expect(updateError).toBeNull();
+    expect(changedRows).toEqual([]);
+
+    const { data: deletedRows, error: deleteError } = await clientB.from("user_activity_events")
+      .delete()
+      .eq("id", eventId)
+      .select("id");
+    expect(deleteError).toBeNull();
+    expect(deletedRows).toEqual([]);
+
+    const { data: ownerRows, error: ownerError } = await clientA.from("user_activity_events")
+      .select("id,payload")
+      .eq("id", eventId);
+    expect(ownerError).toBeNull();
+    expect(ownerRows).toHaveLength(1);
+    expect(ownerRows?.[0].payload).toEqual({ test_marker: marker });
   });
 });
