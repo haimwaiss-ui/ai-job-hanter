@@ -6,6 +6,7 @@ export type SubmissionFailureClass =
   | "captcha"
   | "site_blocked"
   | "authentication_required"
+  | "manual_required"
   | "permanent_validation"
   | "transient_network"
   | "unknown";
@@ -22,14 +23,16 @@ export class PermanentSubmissionError extends Error {
 export class ManualAssistRequiredError extends Error {
   readonly code: string;
 
-  constructor(readonly classification: "captcha" | "site_blocked" | "authentication_required") {
+  constructor(readonly classification: "captcha" | "site_blocked" | "authentication_required" | "manual_required") {
     super("Automated submission paused for human assistance");
     this.name = "ManualAssistRequiredError";
     this.code = classification === "captcha"
       ? "CAPTCHA_DETECTED"
       : classification === "site_blocked"
         ? "SITE_BLOCKED"
-        : "AUTH_REQUIRED";
+        : classification === "manual_required"
+          ? "MANUAL_ASSIST_REQUIRED"
+          : "AUTH_REQUIRED";
   }
 }
 
