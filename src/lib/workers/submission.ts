@@ -1,6 +1,6 @@
-import { isIP } from "node:net";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { normalizeJobUrl } from "@/lib/jobs/tavily";
 
 export type SubmissionFailureClass =
   | "captcha"
@@ -82,38 +82,11 @@ export function buildManualAssistPatch(input: {
 }
 
 export function validateExternalApplicationUrl(value: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error("Manual-assist application URL is invalid");
+  const normalized = normalizeJobUrl(value);
+  if (!normalized) {
+    throw new Error("Manual-assist application URL must be a public HTTP(S) URL without credentials");
   }
-
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("Manual-assist application URL must use HTTP or HTTPS");
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error("Manual-assist application URL cannot contain credentials");
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    host === "0.0.0.0" ||
-    host === "::1" ||
-    (isIP(host) === 4 && (
-      host.startsWith("10.") ||
-      host.startsWith("127.") ||
-      host.startsWith("192.168.") ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-    ))
-  ) {
-    throw new Error("Manual-assist URL points to a private network");
-  }
-
-  return parsed.toString();
+  return normalized;
 }
 
 export async function markSubmissionManualAssist(
