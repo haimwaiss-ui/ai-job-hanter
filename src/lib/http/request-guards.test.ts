@@ -4,6 +4,7 @@ import {
   hasJsonContentType,
   hasMultipartFormDataContentType,
   isSameOriginMutation,
+  readJsonBodyLimited,
 } from "./request-guards";
 
 afterEach(() => {
@@ -48,5 +49,36 @@ describe("request guards", () => {
     expect(hasMultipartFormDataContentType(multipart)).toBe(true);
     expect(contentLengthExceeds(json, 10)).toBe(true);
     expect(contentLengthExceeds(multipart, 10)).toBe(false);
+  });
+
+  it("parses valid JSON within the streamed body limit", async () => {
+    const request = new Request("https://app.example/api", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ queue: "scraper-queue" }),
+    });
+    await expect(readJsonBodyLimited(request, 128)).resolves.toEqual({
+      ok: true,
+      value: { queue: "scraper-queue" },
+    });
+  });
+
+  it("rejects oversized and malformed streamed JSON bodies", async () => {
+    const oversized = new Request("https://app.example/api", {
+      method: "POST",
+      body: JSON.stringify({ text: "x".repeat(128) }),
+    });
+    const malformed = new Request("https://app.example/api", {
+      method: "POST",
+      body: "{not-json",
+    });
+    await expect(readJsonBodyLimited(oversized, 32)).resolves.toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+    await expect(readJsonBodyLimited(malformed, 128)).resolves.toEqual({
+      ok: false,
+      reason: "invalid",
+    });
   });
 });
