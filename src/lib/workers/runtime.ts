@@ -284,7 +284,10 @@ function createTypedWorker<P extends WorkerPayload>(
 
           await withTimeout(timeoutMs, (signal) =>
             handler(payload, {
-              supabase,
+              // Use a per-attempt client so Supabase's own HTTP requests abort
+              // when the handler timeout fires. Keep the base client above for
+              // failure-state writes after the handler has been cancelled.
+              supabase: createTenantWorkerClient(accessToken, signal),
               userId: payload.userId,
               operationId: payload.operationId,
               attempt,
