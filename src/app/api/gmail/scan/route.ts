@@ -90,6 +90,19 @@ export async function POST(request: Request) {
     return jsonError("Unauthorized", 401, "UNAUTHORIZED");
   }
 
+  const { data: connection, error: connectionError } = await supabase
+    .from("gmail_connections")
+    .select("refresh_token_ciphertext,refresh_token_iv,refresh_token_tag")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (connectionError) {
+    return jsonError("Unable to load Gmail connection", 500, "GMAIL_CONNECTION_READ_FAILED");
+  }
+  if (!connection) {
+    return jsonError("עדיין לא חיברת Gmail. לחץ על 'חיבור Gmail' ואשר הרשאת קריאה בלבד.", 409, "GMAIL_NOT_CONNECTED");
+  }
+
   const { data: rateLimitData, error: rateLimitError } = await supabase.rpc(
     "consume_user_api_rate_limit",
     { p_bucket: "gmail_scan" },
@@ -111,19 +124,6 @@ export async function POST(request: Request) {
         "Cache-Control": "no-store",
       },
     });
-  }
-
-  const { data: connection, error: connectionError } = await supabase
-    .from("gmail_connections")
-    .select("refresh_token_ciphertext,refresh_token_iv,refresh_token_tag")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (connectionError) {
-    return jsonError("Unable to load Gmail connection", 500, "GMAIL_CONNECTION_READ_FAILED");
-  }
-  if (!connection) {
-    return jsonError("עדיין לא חיברת Gmail. לחץ על 'חיבור Gmail' ואשר הרשאת קריאה בלבד.", 409, "GMAIL_NOT_CONNECTED");
   }
 
   let refreshToken: string;
