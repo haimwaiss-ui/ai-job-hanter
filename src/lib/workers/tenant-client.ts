@@ -6,7 +6,26 @@ import type { Database } from "@/lib/supabase/database.types";
  * server-side token vault. The publishable key is not privileged; RLS remains
  * the database authorization boundary.
  */
-export function createTenantWorkerClient(accessToken: string) {
+/**
+ * Bind Supabase's internal fetch calls to the worker's AbortSignal.
+ * Request-level cancellation is preserved as well as the job timeout.
+ * Requires the Node 20.3+ AbortSignal.any implementation.
+ */
+export function createSignalBoundFetch(
+  signal: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): typeof fetch {
+  return (input, init) => {
+    const requestSignal = init?.signal ??
+      (typeof Request !== "undefined" && input instanceof Request ? input.signal : undefined);
+    const combinedSignal = requestSignal
+      ? AbortSignal.any([signal, requestSignal])
+      : signal;
+    return fetcher(input, { ...init, signal: combinedSignal });
+  };
+}
+
+export function createTenantWorkerClient(accessToken: string, signal?: AbortSignal) {
   const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) throw new Error("Supabase worker environment is incomplete");
@@ -18,7 +37,10 @@ export function createTenantWorkerClient(accessToken: string) {
       autoRefreshToken: false,
       detectSessionInUrl: false,
     },
-    global: { headers: { Authorization: "Bearer " + accessToken } },
+    global: {
+      headers: { Authorization: "Bearer " + accessToken },
+      ...(signal ? { fetch: createSignalBoundFetch(signal) } : {}),
+    },
   });
 }
 

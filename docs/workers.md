@@ -46,7 +46,7 @@ The service-role credential is used only by this local control-plane script for 
 
 ## Provisioning sequence
 
-1. Apply and verify `supabase/migrations/20261121162000_repair_worker_context_rpc_private_helper.sql` after reviewing the live migration history.
+1. The connected Supabase project reports this repair as already applied under migration version `20261122141617` (`repair_worker_context_rpc_private_helper`). The repository migration filename is aligned to that exact version. Do not apply a second copy to the connected Production project. For a different environment, apply this migration once and verify `worker_current_context()` and `claim_worker_operation()` under an authenticated worker JWT.
 2. Configure Supabase Authentication → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`.
 3. Put provisioning-only secrets in an untracked local `.env.local`.
 4. Run `npm run worker:provision`. The script creates a separate Auth session, binds its exact `session_id` to the database row and Secrets Manager record, refreshes to receive the worker claim, sets `provisioned_at`, and verifies the tenant context.
@@ -57,7 +57,7 @@ The service-role credential is used only by this local control-plane script for 
 - Queue payloads contain only tenant IDs, operation IDs, an opaque vault reference, and task-specific identifiers. Raw access/refresh tokens and service-role credentials never enter Redis, logs, traces, or metrics.
 - Every queue payload is revalidated at the worker boundary. The worker verifies Supabase Auth identity and `worker_current_context()` before claiming an operation.
 - All database writes use the short-lived user JWT and RLS. The worker never uses service-role for tenant data.
-- Retries are bounded with exponential backoff and jitter. Workers have per-queue concurrency/rate limits, timeouts, stalled-job handling, graceful shutdown, and dead-letter recording.
+- Retries are bounded with exponential backoff and jitter. Workers have per-queue concurrency/rate limits, timeouts, stalled-job handling, graceful shutdown, and dead-letter recording. Handler Supabase HTTP requests inherit the per-attempt timeout AbortSignal; run the dedicated worker on Node.js 20.3 or newer.
 - Resume files remain in the private `resumes` bucket. Manual Assist stores the tenant-owned PDF object path and direct application URL. The authenticated `POST /api/applications/:id/manual-assist-resume` endpoint issues a 60-second signed download URL after ownership verification.
 - External job-site content is treated as untrusted data. The AI prompt explicitly forbids following instructions embedded in job descriptions or resumes.
 
@@ -71,7 +71,7 @@ npm run test:unit
 npm run build
 ```
 
-Run database integration tests only against an isolated Supabase project with two test users and the Custom Access Token Hook enabled. The live Production database was not changed by this code branch. Redis/AWS/AI provider end-to-end processing still requires separately provisioned infrastructure and credentials.
+Run database integration tests only against an isolated Supabase project with two test users and the Custom Access Token Hook enabled. This code branch does not apply changes to Production; the worker RPC repair is already recorded in the connected Production Supabase migration history as version `20261122141617`. Redis/AWS/AI provider end-to-end processing still requires separately provisioned infrastructure and credentials.
 
 ### Tenant RLS integration test
 

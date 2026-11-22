@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertWorkerTenant } from "./tenant-client";
+import { assertWorkerTenant, createSignalBoundFetch } from "./tenant-client";
 import type { Database } from "@/lib/supabase/database.types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -20,6 +20,42 @@ function fakeClient(userId: string, workerEnabled = true) {
     }),
   } as unknown as SupabaseClient<Database>;
 }
+
+describe("worker timeout fetch cancellation", () => {
+  it("propagates the job abort signal and preserves a request-level signal", async () => {
+    const jobController = new AbortController();
+    const requestController = new AbortController();
+    const received: RequestInit[] = [];
+    const fakeFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      received.push(init ?? {});
+      return new Response("ok");
+    }) as typeof fetch;
+
+    const boundFetch = createSignalBoundFetch(jobController.signal, fakeFetch);
+    await boundFetch("https://supabase.example/rest/v1/profiles", {
+      method: "GET",
+      signal: requestController.signal,
+    });
+
+    expect(received).toHaveLength(1);
+    const requestSignal = received[0]?.signal;
+    expect(requestSignal).toBeDefined();
+    expect(requestSignal?.aborted).toBe(false);
+
+    jobController.abort(new Error("worker timeout"));
+    expect(requestSignal?.aborted).toBe(true);
+
+    const secondJob = new AbortController();
+    const secondRequest = new AbortController();
+    const secondFetch = createSignalBoundFetch(secondJob.signal, fakeFetch);
+    const pending = secondFetch("https://supabase.example/rest/v1/jobs", {
+      signal: secondRequest.signal,
+    });
+    secondRequest.abort(new Error("caller cancelled"));
+    await pending;
+    expect(received[1]?.signal?.aborted).toBe(true);
+  });
+});
 
 describe("worker tenant assertion", () => {
   it("accepts only a verified matching auth user and Postgres auth.uid()", async () => {
