@@ -4,9 +4,21 @@
 
 Run `npm run worker` on a dedicated long-lived Node.js worker host (for example, a container service). A Vercel Next.js deployment does not keep a BullMQ process alive; do not treat a successful web build as worker availability.
 
-The repository has typed BullMQ queues in `src/lib/queues/queues.ts`, strict Zod payload contracts in `src/lib/queues/contracts.ts`, tenant-scoped idempotency in `src/lib/workers/idempotency.ts`, API ingress in `src/lib/queues/enqueue.ts`, and the worker runtime in `src/lib/workers/runtime.ts`.
+The repository has typed BullMQ queues in `src/lib/queues/queues.ts`, strict Zod payload contracts in `src/lib/queues/contracts.ts`, tenant-scoped idempotency in `src/lib/workers/idempotency.ts`, queue producers in `src/lib/queues/enqueue.ts`, and the worker runtime in `src/lib/workers/runtime.ts`.
 
 `npm run worker` starts `src/workers/main.ts`. Unless an operator explicitly sets `WORKER_HANDLER_MODULE`, the runtime loads the built-in `src/workers/handlers.ts` module.
+
+## Authenticated queue ingress
+
+`POST /api/worker/queue` accepts one of three strict Zod-validated operations: `scraper-queue`, `ai-processing-queue`, or `submission-queue`.
+
+- The caller must have a valid Supabase user session and a fully provisioned, non-revoked worker session.
+- Tenant ID, operation ID, vault reference and idempotency key are derived on the server; caller-supplied identity or credential fields are rejected.
+- Job and resume IDs are checked with the caller's JWT/RLS before AI work is enqueued. Submission is accepted only for an explicitly approved, non-Manual-Assist application.
+- Request JSON is streamed and capped at 32 KiB. Same-origin and content-type checks run before parsing.
+- The route requires `REDIS_URL` in the web runtime. A separate long-lived worker host must consume the queues.
+
+The existing `POST /api/jobs/scan` remains the synchronous search flow used by the current UI. It has not been silently switched to background processing. Connecting the scan button and scheduled preferences to this queue ingress is a separate rollout step after Redis and worker provisioning are ready.
 
 ## Worker handlers
 
@@ -46,7 +58,7 @@ The service-role credential is used only by this local control-plane script for 
 
 ## Provisioning sequence
 
-1. Apply and verify `supabase/migrations/20261121162000_repair_worker_context_rpc_private_helper.sql` after reviewing the live migration history.
+1. The connected Production Supabase project has the worker RPC repair migration applied as version `20261122141617`. Other environments should apply `supabase/migrations/20261122141617_repair_worker_context_rpc_private_helper.sql` after reviewing their own migration history.
 2. Configure Supabase Authentication → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`.
 3. Put provisioning-only secrets in an untracked local `.env.local`.
 4. Run `npm run worker:provision`. The script creates a separate Auth session, binds its exact `session_id` to the database row and Secrets Manager record, refreshes to receive the worker claim, sets `provisioned_at`, and verifies the tenant context.
@@ -71,7 +83,7 @@ npm run test:unit
 npm run build
 ```
 
-Run database integration tests only against an isolated Supabase project with two test users and the Custom Access Token Hook enabled. The live Production database was not changed by this code branch. Redis/AWS/AI provider end-to-end processing still requires separately provisioned infrastructure and credentials.
+Run database integration tests only against an isolated Supabase project with two test users and the Custom Access Token Hook enabled. The Production RPC repair migration has been applied, but no worker session or queue job has been provisioned. Redis/AWS/AI provider end-to-end processing still requires separately provisioned infrastructure and credentials.
 
 ### Tenant RLS integration test
 
