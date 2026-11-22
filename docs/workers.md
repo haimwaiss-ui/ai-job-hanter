@@ -71,7 +71,7 @@ npm run test:unit
 npm run build
 ```
 
-Run database integration tests only against an isolated Supabase project with two test users and the Custom Access Token Hook enabled. The live Production database was not changed by this code branch. Redis/AWS/AI provider end-to-end processing still requires separately provisioned infrastructure and credentials.
+Run database integration tests only against an isolated Supabase project with two test users and the Custom Access Token Hook enabled. This code branch does not apply changes to Production; the worker RPC repair is already recorded in the connected Production Supabase migration history as version `20261122141617`. Redis/AWS/AI provider end-to-end processing still requires separately provisioned infrastructure and credentials.
 
 ### Tenant RLS integration test
 
