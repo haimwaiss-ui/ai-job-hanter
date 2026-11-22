@@ -1,11 +1,12 @@
-import { isIP } from "node:net";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { normalizeJobUrl } from "@/lib/jobs/tavily";
 
 export type SubmissionFailureClass =
   | "captcha"
   | "site_blocked"
   | "authentication_required"
+  | "manual_required"
   | "permanent_validation"
   | "transient_network"
   | "unknown";
@@ -22,14 +23,16 @@ export class PermanentSubmissionError extends Error {
 export class ManualAssistRequiredError extends Error {
   readonly code: string;
 
-  constructor(readonly classification: "captcha" | "site_blocked" | "authentication_required") {
+  constructor(readonly classification: "captcha" | "site_blocked" | "authentication_required" | "manual_required") {
     super("Automated submission paused for human assistance");
     this.name = "ManualAssistRequiredError";
     this.code = classification === "captcha"
       ? "CAPTCHA_DETECTED"
       : classification === "site_blocked"
         ? "SITE_BLOCKED"
-        : "AUTH_REQUIRED";
+        : classification === "manual_required"
+          ? "MANUAL_ASSIST_REQUIRED"
+          : "AUTH_REQUIRED";
   }
 }
 
@@ -79,38 +82,11 @@ export function buildManualAssistPatch(input: {
 }
 
 export function validateExternalApplicationUrl(value: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error("Manual-assist application URL is invalid");
+  const normalized = normalizeJobUrl(value);
+  if (!normalized) {
+    throw new Error("Manual-assist application URL must be a public HTTP(S) URL without credentials");
   }
-
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("Manual-assist application URL must use HTTP or HTTPS");
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error("Manual-assist application URL cannot contain credentials");
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    host === "0.0.0.0" ||
-    host === "::1" ||
-    (isIP(host) === 4 && (
-      host.startsWith("10.") ||
-      host.startsWith("127.") ||
-      host.startsWith("192.168.") ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-    ))
-  ) {
-    throw new Error("Manual-assist URL points to a private network");
-  }
-
-  return parsed.toString();
+  return normalized;
 }
 
 export async function markSubmissionManualAssist(
@@ -187,6 +163,10 @@ export async function executeSubmissionWithFallback(
   try {
     await input.submit(input.signal);
   } catch (error) {
+    if (error instanceof ManualAssistRequiredError) {
+      await markSubmissionManualAssist(supabase, input.userId, input.applicationId);
+      throw error;
+    }
     const classification = classifySubmissionFailure(error);
     if (
       classification === "captcha" ||
