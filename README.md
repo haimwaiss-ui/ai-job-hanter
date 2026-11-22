@@ -3,7 +3,7 @@
 A Hebrew, RTL-first Next.js preview for reviewing the product experience. The current UI includes:
 - sign-in and sign-up screens (Supabase Auth when configured);
 - a demo entry path so the interface can be explored before backend credentials are connected;
-- dashboard, job list/search, applications, resume upload placeholder, profile, and settings;
+- dashboard, job list/search, applications, resume management and private PDF upload, profile, and settings;
 - demo data stored in the browser only.
 
 ## Run locally
@@ -25,14 +25,14 @@ Open http://localhost:3000. Without Supabase environment values, use "כניסה
 
 ## Supabase setup
 
-The repository now contains the 21 timestamped migrations reconstructed from the connected Supabase project's applied history. Do not replay them against production. Link the project and verify the recorded state first:
+The repository now contains the 22 timestamped migrations reconstructed from the connected Supabase project's applied history. Do not replay them against production. Link the project and verify the recorded state first:
 
 ```bash
 npx supabase link --project-ref "$SUPABASE_PROJECT_ID"
 npx supabase migration list --linked
 ```
 
-The linked status must show all 21 versions as applied before any migration work continues. Never run `db reset` against production. Apply only new, reviewed forward migrations.
+The linked status must show all 22 versions as applied before any migration work continues. Never run `db reset` against production. Apply only new, reviewed forward migrations.
 
 Configure Supabase Auth redirect URLs for the deployed domain and local development. Generate authoritative database types after schema changes. The script derives the project ref from `NEXT_PUBLIC_SUPABASE_URL` or accepts `SUPABASE_PROJECT_ID`; authenticate the Supabase CLI first with `supabase login` or `SUPABASE_ACCESS_TOKEN`:
 
@@ -46,7 +46,7 @@ npm run db:types
 - Authenticated profile, resume metadata, jobs, applications, and preferences use Supabase with user-scoped RLS; resume PDFs are stored in the private `resumes` bucket.
 - Web job discovery requires a server-side Tavily key. Search covers publicly indexed pages only; it cannot access private groups or login-only content.
 - Gmail scanning requires a configured Google OAuth application and a valid 32-byte encryption key.
-- AI matching, automatic application submission, and worker-driven synchronization are not production-ready until the corresponding provider integrations, Redis/AWS runtime, and real worker handlers are configured.
+- The built-in scraper, AI-analysis, and submission handlers are implemented, but background processing is not active until the Custom Access Token Hook, a dedicated long-lived Node.js worker host, Redis, AWS Secrets Manager workload identity, and the required provider keys are configured. The submission handler deliberately falls back to Manual Assist unless an operator-reviewed, idempotent site adapter is installed.
 - Confirm the current production deployment in Vercel before treating a code change as live.
 
 ## Security
@@ -55,7 +55,7 @@ Never expose a Supabase service-role key in browser code or `NEXT_PUBLIC_*` vari
 
 ## Sprint 2.2 — tenant security and typed access
 
-The connected Supabase project has 21 timestamped migrations. The repository's `supabase/migrations` directory now contains the same 21 versioned SQL files, including private resume storage, Auth profile provisioning, tenant-safe worker infrastructure, employer workspace, Gmail OAuth, and later security hardening.
+The connected Supabase project has 22 timestamped migrations. The repository's `supabase/migrations` directory now contains the same 22 versioned SQL files, including private resume storage, Auth profile provisioning, tenant-safe worker infrastructure, employer workspace, Gmail OAuth, and later security hardening.
 
 The `resumes` bucket is private, limited to PDF files up to 10 MiB, and accepts only canonical paths of the form `<user-uuid>/<uuid-v4>.pdf`. Storage SELECT/INSERT/DELETE policies check the authenticated owner in the path. Object replacement/upsert is not permitted. The resume API checks the PDF signature and coordinates metadata deletion with object cleanup.
 
@@ -69,17 +69,17 @@ The broad table ACLs for `anon` and `authenticated` were revoked. Authenticated 
 
 The worker migration creates `worker_sessions`, `worker_operations`, `worker_current_context()`, `claim_worker_operation()`, and `custom_access_token_hook(event jsonb)`. `worker_sessions` is not self-service: authenticated users can read only their own opaque vault reference and cannot insert, update, or delete worker-session rows. The access-token hook binds the `worker` claim to a dedicated `auth_session_id`; do not register a user's normal browser session as a worker session.
 
-Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. The one-time local script `npm run worker:provision` performs trusted provisioning: it creates a separate passwordless Auth session through the Supabase Admin API, registers it with the service-role client, refreshes it so the custom token hook can issue the worker claim, stores the access/refresh tokens and `sessionId` in AWS Secrets Manager, sets `provisioned_at`, and verifies the worker tenant context. It is idempotent when an active registration and valid vault secret already exist. The service-role key is used only by this local server-side script; never add it to `NEXT_PUBLIC_*` variables or worker queue payloads. The BullMQ runtime also requires Redis, AWS Secrets Manager credentials, and a real module exporting `createWorkerHandlers()`.
+Before running workers, configure Supabase Auth → Hooks → Custom Access Token Hook to call `public.custom_access_token_hook`. The one-time local script `npm run worker:provision` performs trusted provisioning: it creates a separate passwordless Auth session through the Supabase Admin API, registers it with the service-role client, refreshes it so the custom token hook can issue the worker claim, stores the access/refresh tokens and `sessionId` in AWS Secrets Manager, sets `provisioned_at`, and verifies the worker tenant context. It is idempotent when an active registration and valid vault secret already exist. The service-role key is used only by this local server-side script; never add it to `NEXT_PUBLIC_*` variables or worker queue payloads. The built-in `src/workers/handlers.ts` exports `createWorkerHandlers()`. The BullMQ runtime still requires Redis and AWS Secrets Manager workload credentials on a dedicated worker host.
 
 Worker process variables are server-only: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `REDIS_URL`, `AWS_REGION`, `TOKEN_VAULT_SECRET_PREFIX`, and `WORKER_HANDLER_MODULE`. For local provisioning, also set `SUPABASE_SERVICE_ROLE_KEY` and `WORKER_USER_ID` in `.env.local`. The AWS identity needs Secrets Manager create/get/put/delete permissions for the configured prefix (and KMS permissions if a customer-managed key is used). The service-role key is never used by browser code or queue payloads.
 
 ### Verification
 
-Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database checks, run `npx supabase migration list --linked` and confirm all 21 recorded versions are applied before adding a new migration. The repository history was reconstructed from the live recorded statements and no production DDL was executed during that reconciliation. Do not run `db reset` against production.
+Run `npm run typecheck`, `npm run test:unit`, and `npm run build`. For database checks, run `npx supabase migration list --linked` and confirm all 22 recorded versions are applied before adding a new migration. The repository history was reconstructed from the live recorded statements and no production DDL was executed during that reconciliation. Do not run `db reset` against production.
 
 The live signup trigger was tested in a rolled-back transaction with a 200-character metadata name and created a profile with a 160-character name. Live privilege checks confirmed that profile INSERT, profile email UPDATE, resume parsed-text UPDATE, application status INSERT, and worker-session INSERT/UPDATE/DELETE are denied to `authenticated`. The live Storage bucket is private.
 
-Remaining security work: configure leaked-password protection in Supabase Auth, add malware scanning/quarantine for uploaded PDFs, enable the Custom Access Token Hook in Supabase Dashboard, and deploy a real `createWorkerHandlers()` module plus Redis/AWS runtime configuration before enabling worker execution.
+Remaining security and operations work: enable leaked-password protection in Supabase Auth, add malware scanning/quarantine for uploaded PDFs, enable the Custom Access Token Hook in Supabase Dashboard, provision the dedicated worker identity, and configure Redis/AWS plus the server-side provider keys. The built-in `createWorkerHandlers()` module is already present; it still needs an operational host and isolated end-to-end verification.
 ## Employer workspace, web search, and Gmail
 
 The employer workspace uses the additive migration `009_employer_workspace_and_recruiting_pipeline.sql`; Gmail connections use `008_gmail_readonly_oauth_connections.sql`. Employer records are user-scoped with RLS. Applicant details are not exposed to employers until a candidate explicitly applies.
