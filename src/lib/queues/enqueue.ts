@@ -23,13 +23,14 @@ async function requireTenantAndVaultRef(
 
   const { data, error } = await supabase
     .from("worker_sessions")
-    .select("token_vault_ref")
+    .select("token_vault_ref,provisioned_at")
     .eq("user_id", expectedUserId)
     .is("revoked_at", null)
+    .not("provisioned_at", "is", null)
     .single();
 
-  if (error || !data?.token_vault_ref) {
-    throw new Error("Background worker session is not connected");
+  if (error || !data?.token_vault_ref || !data.provisioned_at) {
+    throw new Error("Background worker session is not provisioned");
   }
   return data.token_vault_ref;
 }
@@ -100,7 +101,7 @@ export async function enqueueSubmission(
 
   const { data: application, error } = await supabase
     .from("applications")
-    .select("id,status")
+    .select("id,status,manual_assist_required")
     .eq("id", input.applicationId)
     .eq("user_id", input.userId)
     .single();
@@ -108,7 +109,8 @@ export async function enqueueSubmission(
   if (error || !application) {
     throw new Error("Application not found for authenticated tenant");
   }
-  if (application.status !== "approved" && application.status !== "ready_to_submit") {
+  if (application.manual_assist_required ||
+      (application.status !== "approved" && application.status !== "ready_to_submit")) {
     throw new Error("Application is not approved for submission");
   }
 
