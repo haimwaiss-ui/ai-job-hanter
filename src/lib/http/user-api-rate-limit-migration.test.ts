@@ -15,11 +15,12 @@ describe("user API rate-limit migration security", () => {
     expect(migration).toMatch(/v_user_id uuid := auth\.uid\(\)/i);
   });
 
-  it("uses fixed server-side quotas and a SECURITY DEFINER function with a pinned search path", () => {
+  it("uses fixed server-side quotas, a pinned SECURITY DEFINER function, and a bounded counter", () => {
     expect(migration).toMatch(/security definer\s+set search_path = ''/i);
     expect(migration).toMatch(/when 'job_scan' then\s+v_limit := 3;\s+v_window_seconds := 60/i);
     expect(migration).toMatch(/when 'gmail_scan' then\s+v_limit := 2;\s+v_window_seconds := 60/i);
     expect(migration).toMatch(/on conflict \(user_id, bucket\) do update/i);
+    expect(migration).toMatch(/least\(limits\.request_count \+ 1, v_limit \+ 1\)/i);
     expect(migration).toMatch(/grant execute on function public\.consume_user_api_rate_limit\(text\)\s+to authenticated/i);
     expect(migration).not.toMatch(/grant execute on function public\.consume_user_api_rate_limit\(text\)\s+to [^;]*service_role/i);
   });
