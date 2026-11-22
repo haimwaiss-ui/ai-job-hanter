@@ -61,10 +61,12 @@ begin
         then v_now
       else limits.window_started_at
     end,
+    -- Saturate at limit + 1: further rejected requests do not grow the
+    -- counter indefinitely or risk integer overflow during a sustained flood.
     request_count = case
       when limits.window_started_at + make_interval(secs => v_window_seconds) <= v_now
         then 1
-      else limits.request_count + 1
+      else least(limits.request_count + 1, v_limit + 1)
     end,
     updated_at = v_now
   returning request_count, window_started_at
