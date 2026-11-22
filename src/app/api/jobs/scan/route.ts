@@ -41,6 +41,29 @@ export async function POST(request: Request) {
   if (!parsedBody.success) {
     return NextResponse.json({ error: "Invalid job search query" }, { status: 422 });
   }
+  const requestedQuery = parsedBody.data.query ?? "";
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("headline,location,skills")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    return NextResponse.json({ error: "Unable to load search profile" }, { status: 500 });
+  }
+
+  const roleAndSkills = [
+    requestedQuery,
+    profile?.headline,
+    ...(profile?.skills ?? []),
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (roleAndSkills.length === 0) {
+    return NextResponse.json({
+      error: "הזן תפקיד או מיומנויות בפרופיל לפני הפעלת הסריקה.",
+      code: "JOB_SEARCH_QUERY_REQUIRED",
+    }, { status: 422 });
+  }
+
   const { data: rateLimitData, error: rateLimitError } = await supabase.rpc(
     "consume_user_api_rate_limit",
     { p_bucket: "job_scan" },
@@ -65,29 +88,6 @@ export async function POST(request: Request) {
         "Cache-Control": "no-store",
       },
     });
-  }
-
-  const requestedQuery = parsedBody.data.query ?? "";
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("headline,location,skills")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    return NextResponse.json({ error: "Unable to load search profile" }, { status: 500 });
-  }
-
-  const roleAndSkills = [
-    requestedQuery,
-    profile?.headline,
-    ...(profile?.skills ?? []),
-  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-  if (roleAndSkills.length === 0) {
-    return NextResponse.json({
-      error: "הזן תפקיד או מיומנויות בפרופיל לפני הפעלת הסריקה.",
-      code: "JOB_SEARCH_QUERY_REQUIRED",
-    }, { status: 422 });
   }
 
   const baseQuery = [
