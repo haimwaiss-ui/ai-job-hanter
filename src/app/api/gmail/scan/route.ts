@@ -1,6 +1,7 @@
 import { createDecipheriv } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { parseUserApiRateLimitResult } from "@/lib/http/user-api-rate-limit";
 import {
   gmailMessageListSchema,
   gmailMessageSchema,
@@ -100,6 +101,29 @@ export async function POST(request: Request) {
   }
   if (!connection) {
     return jsonError("עדיין לא חיברת Gmail. לחץ על 'חיבור Gmail' ואשר הרשאת קריאה בלבד.", 409, "GMAIL_NOT_CONNECTED");
+  }
+
+  const { data: rateLimitData, error: rateLimitError } = await supabase.rpc(
+    "consume_user_api_rate_limit",
+    { p_bucket: "gmail_scan" },
+  );
+  const rateLimit = parseUserApiRateLimitResult(rateLimitData);
+  if (rateLimitError || !rateLimit) {
+    console.error("gmail_scan_rate_limit_unavailable", rateLimitError?.code ?? "invalid_result");
+    return jsonError("Gmail scan rate-limit service is unavailable", 503, "GMAIL_RATE_LIMIT_UNAVAILABLE");
+  }
+  if (!rateLimit.allowed) {
+    return NextResponse.json({
+      error: "בוצעו יותר מדי סריקות Gmail בזמן קצר. נסה שוב בעוד מספר שניות.",
+      code: "GMAIL_RATE_LIMITED",
+      retryAfterSeconds: rateLimit.retry_after_seconds,
+    }, {
+      status: 429,
+      headers: {
+        "Retry-After": String(rateLimit.retry_after_seconds),
+        "Cache-Control": "no-store",
+      },
+    });
   }
 
   let refreshToken: string;
