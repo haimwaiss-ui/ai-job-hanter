@@ -51,8 +51,11 @@ export function createTenantWorkerClient(accessToken: string, signal?: AbortSign
 export async function assertWorkerTenant(
   supabase: SupabaseClient<Database>,
   expectedUserId: string,
+  accessToken: string,
 ): Promise<void> {
-  const { data: authData, error: authError } = await supabase.auth.getUser();
+  // This worker client deliberately has persistSession=false. Verify the
+  // vault-resolved JWT explicitly instead of relying on an SDK-stored session.
+  const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
   if (authError || !authData.user || authData.user.id !== expectedUserId) {
     throw new Error("Worker tenant identity mismatch");
   }
