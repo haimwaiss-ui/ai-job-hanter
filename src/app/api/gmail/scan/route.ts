@@ -8,9 +8,9 @@ import {
   googleRefreshTokenResponseSchema,
 } from "@/lib/validation/gmail";
 import {
-  contentLengthExceeds,
   hasJsonContentType,
   isSameOriginMutation,
+  readRequestTextLimited,
   MAX_JSON_BODY_BYTES,
 } from "@/lib/http/request-guards";
 
@@ -50,21 +50,18 @@ export async function POST(request: Request) {
   if (!hasJsonContentType(request)) {
     return jsonError("Expected application/json", 415, "UNSUPPORTED_MEDIA_TYPE");
   }
-  if (contentLengthExceeds(request, MAX_JSON_BODY_BYTES)) {
-    return jsonError("Request body too large", 413, "BODY_TOO_LARGE");
-  }
-
-  const rawBody = await request.text().catch(() => null);
-  if (rawBody === null) {
-    return jsonError("Invalid JSON body", 400, "INVALID_JSON");
-  }
-  if (Buffer.byteLength(rawBody, "utf8") > MAX_JSON_BODY_BYTES) {
-    return jsonError("Request body too large", 413, "BODY_TOO_LARGE");
+  const bodyRead = await readRequestTextLimited(request, MAX_JSON_BODY_BYTES);
+  if (!bodyRead.ok) {
+    return jsonError(
+      bodyRead.reason === "too_large" ? "Request body too large" : "Invalid JSON body",
+      bodyRead.reason === "too_large" ? 413 : 400,
+      bodyRead.reason === "too_large" ? "BODY_TOO_LARGE" : "INVALID_JSON",
+    );
   }
   let body: unknown = {};
-  if (rawBody.trim().length > 0) {
+  if (bodyRead.text.trim().length > 0) {
     try {
-      body = JSON.parse(rawBody);
+      body = JSON.parse(bodyRead.text);
     } catch {
       return jsonError("Invalid JSON body", 400, "INVALID_JSON");
     }
