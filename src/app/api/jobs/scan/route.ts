@@ -185,6 +185,6 @@ export async function POST(request: Request) {
     inserted: inserted.length,
     sourceCounts,
     failedSources: failedCount,
-    message: \`נסרקו אתרי דרושים, LinkedIn, Facebook, X והרשת הכללית: נמצאו \${found} תוצאות ייחודיות, \${inserted.length} משרות חדשות נשמרו.\`,
+    message: `נסרקו אתרי דרושים, LinkedIn, Facebook, X והרשת הכללית: נמצאו ${found} תוצאות ייחודיות, ${inserted.length} משרות חדשות נשמרו.`,
   });
 }
