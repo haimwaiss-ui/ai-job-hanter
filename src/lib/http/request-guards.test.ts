@@ -4,6 +4,8 @@ import {
   hasJsonContentType,
   hasMultipartFormDataContentType,
   isSameOriginMutation,
+  readRequestBodyLimited,
+  readRequestTextLimited,
 } from "./request-guards";
 
 afterEach(() => {
@@ -48,5 +50,61 @@ describe("request guards", () => {
     expect(hasMultipartFormDataContentType(multipart)).toBe(true);
     expect(contentLengthExceeds(json, 10)).toBe(true);
     expect(contentLengthExceeds(multipart, 10)).toBe(false);
+  });
+
+  it("enforces the byte limit against the actual stream when Content-Length is absent", async () => {
+    const request = new Request("https://app.example/api", {
+      method: "POST",
+      body: "123456",
+    });
+    expect(request.headers.has("content-length")).toBe(false);
+
+    await expect(readRequestBodyLimited(request, 5)).resolves.toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+  });
+
+  it("accepts a body exactly at the configured byte limit", async () => {
+    const request = new Request("https://app.example/api", {
+      method: "POST",
+      body: "12345",
+    });
+    const result = await readRequestBodyLimited(request, 5);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(new TextDecoder().decode(result.bytes)).toBe("12345");
+    }
+  });
+
+  it("rejects a declared oversized body before reading it", async () => {
+    const request = new Request("https://app.example/api", {
+      method: "POST",
+      headers: { "content-length": "11" },
+      body: "12345678901",
+    });
+    await expect(readRequestBodyLimited(request, 10)).resolves.toEqual({
+      ok: false,
+      reason: "too_large",
+    });
+  });
+
+  it("rejects invalid UTF-8 rather than silently replacing bytes", async () => {
+    const request = new Request("https://app.example/api", {
+      method: "POST",
+      body: new Uint8Array([0xff, 0xfe]),
+    });
+    await expect(readRequestTextLimited(request, 10)).resolves.toEqual({
+      ok: false,
+      reason: "invalid_utf8",
+    });
+  });
+
+  it("returns an empty body for requests without a body", async () => {
+    const request = new Request("https://app.example/api", { method: "POST" });
+    await expect(readRequestBodyLimited(request, 10)).resolves.toEqual({
+      ok: true,
+      bytes: new Uint8Array(0),
+    });
   });
 });
