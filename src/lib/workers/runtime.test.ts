@@ -55,18 +55,23 @@ describe("worker runtime controls", () => {
       }),
     };
 
+    let markDrainStarted!: () => void;
+    const drainStarted = new Promise<void>((resolve) => {
+      markDrainStarted = resolve;
+    });
     const closing = closeWorkerResources(
       [worker],
       deadLetterQueue,
       connection as never,
       async () => {
         order.push("drain-start");
+        markDrainStarted();
         await drainPendingWorkerSideEffects(pending);
         order.push("drain-end");
       },
     );
 
-    await Promise.resolve();
+    await drainStarted;
     expect(order).toEqual(["worker", "drain-start"]);
     expect(deadLetterQueue.close).not.toHaveBeenCalled();
     expect(connection.quit).not.toHaveBeenCalled();
