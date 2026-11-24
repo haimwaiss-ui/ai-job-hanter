@@ -214,6 +214,28 @@ function executionTypeFor(queueName: WorkerQueueName): ExecutionType {
   return "form_submission";
 }
 
+export function trackPendingWorkerSideEffect(
+  pending: Set<Promise<void>>,
+  task: Promise<void>,
+  onError: () => void,
+): void {
+  let tracked!: Promise<void>;
+  tracked = task
+    .catch(() => onError())
+    .finally(() => pending.delete(tracked));
+  pending.add(tracked);
+}
+
+export async function drainPendingWorkerSideEffects(
+  pending: Set<Promise<void>>,
+): Promise<void> {
+  // A failed event may enqueue more than one side effect. Drain until the set
+  // is empty, including tasks registered while an earlier batch is settling.
+  while (pending.size > 0) {
+    await Promise.allSettled([...pending]);
+  }
+}
+
 function createTypedWorker<P extends WorkerPayload>(
   queueName: WorkerQueueName,
   schema: ZodType<P>,
@@ -230,6 +252,7 @@ function createTypedWorker<P extends WorkerPayload>(
     deadLetterQueue: Queue<DeadLetterPayload>;
     tokenVault: UserTokenVault;
     logger: SafeLogger;
+    pendingFailureTasks: Set<Promise<void>>;
   },
 ): Worker<P, unknown, string> {
   const processor: Processor<P, unknown, string> = async (job) => {
@@ -438,32 +461,36 @@ function createTypedWorker<P extends WorkerPayload>(
 
     if (job.attemptsMade >= attempts) {
       const safe = toSafeWorkerError({ code: "WORKER_FAILED" });
-      void publishDeadLetter(
-        dependencies.deadLetterQueue,
-        queueName,
-        job as Job<WorkerPayload>,
-        payload,
-        safe.code,
-        job.attemptsMade,
-      ).catch(() => {
-        dependencies.logger.error("dead_letter_publish_failed", {
+      trackPendingWorkerSideEffect(
+        dependencies.pendingFailureTasks,
+        publishDeadLetter(
+          dependencies.deadLetterQueue,
+          queueName,
+          job as Job<WorkerPayload>,
+          payload,
+          safe.code,
+          job.attemptsMade,
+        ),
+        () => dependencies.logger.error("dead_letter_publish_failed", {
           queueName,
           jobId: job.id ?? null,
           userId: payload.userId,
-        });
-      });
-      void recordTerminalFailureIfNeeded(
-        dependencies.tokenVault,
-        queueName,
-        payload,
-        safe.code,
-      ).catch(() => {
-        dependencies.logger.error("terminal_failure_record_failed", {
+        }),
+      );
+      trackPendingWorkerSideEffect(
+        dependencies.pendingFailureTasks,
+        recordTerminalFailureIfNeeded(
+          dependencies.tokenVault,
+          queueName,
+          payload,
+          safe.code,
+        ),
+        () => dependencies.logger.error("terminal_failure_record_failed", {
           queueName,
           jobId: job.id ?? null,
           userId: payload.userId,
-        });
-      });
+        }),
+      );
     }
   });
 
@@ -486,11 +513,13 @@ export function createWorkerRuntime(input: {
     defaultJobOptions: { removeOnComplete: false, removeOnFail: false },
   });
 
+  const pendingFailureTasks = new Set<Promise<void>>();
   const dependencies = {
     connection: input.connection,
     deadLetterQueue,
     tokenVault: input.tokenVault,
     logger,
+    pendingFailureTasks,
   };
 
   const workers = [
@@ -526,7 +555,12 @@ export function createWorkerRuntime(input: {
   return {
     workers,
     deadLetterQueue,
-    close: () => closeWorkerResources(workers, deadLetterQueue, input.connection),
+    close: () => closeWorkerResources(
+      workers,
+      deadLetterQueue,
+      input.connection,
+      () => drainPendingWorkerSideEffects(pendingFailureTasks),
+    ),
   };
 }
 
@@ -534,17 +568,39 @@ export async function closeWorkerResources(
   workers: Array<{ close: () => Promise<void> }>,
   deadLetterQueue: { close: () => Promise<void> },
   connection: IORedis,
+  drainPending: () => Promise<void> = async () => undefined,
 ): Promise<void> {
-  const results = await Promise.allSettled([
-    ...workers.map((worker) => worker.close()),
-    deadLetterQueue.close(),
-  ]);
+  // Stop fetching/processing first. BullMQ emits terminal "failed" events
+  // during this phase, and those listeners register durable side effects.
+  const workerResults = await Promise.allSettled(
+    workers.map((worker) => worker.close()),
+  );
 
-  if (connection.status !== "end") {
-    await connection.quit();
+  // Do not close the DLQ queue or Redis connection while stalled-job
+  // terminal recording and dead-letter publication are still in flight.
+  let drainFailed = false;
+  try {
+    await drainPending();
+  } catch {
+    drainFailed = true;
   }
 
-  if (results.some((result) => result.status === "rejected")) {
+  const deadLetterResults = await Promise.allSettled([deadLetterQueue.close()]);
+  let connectionFailed = false;
+  if (connection.status !== "end") {
+    try {
+      await connection.quit();
+    } catch {
+      connectionFailed = true;
+    }
+  }
+
+  if (
+    drainFailed ||
+    connectionFailed ||
+    workerResults.some((result) => result.status === "rejected") ||
+    deadLetterResults.some((result) => result.status === "rejected")
+  ) {
     throw new Error("One or more worker resources did not close cleanly");
   }
 }
