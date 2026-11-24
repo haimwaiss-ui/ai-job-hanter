@@ -7,6 +7,7 @@ import {
   contentLengthExceeds,
   hasMultipartFormDataContentType,
   isSameOriginMutation,
+  readRequestBodyLimited,
   MAX_RESUME_REQUEST_BYTES,
 } from "@/lib/http/request-guards";
 
@@ -56,7 +57,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const form = await request.formData().catch(() => null);
+  const bodyRead = await readRequestBodyLimited(request, MAX_RESUME_REQUEST_BYTES);
+  if (!bodyRead.ok) {
+    return NextResponse.json(
+      { error: bodyRead.reason === "too_large" ? "Upload request too large" : "Unable to read upload body" },
+      { status: bodyRead.reason === "too_large" ? 413 : 400 },
+    );
+  }
+
+  // Parse only the bounded bytes. Do not let formData() consume an unbounded
+  // incoming stream when Content-Length is missing or inaccurate.
+  const boundedHeaders = new Headers(request.headers);
+  boundedHeaders.delete("content-length");
+  const boundedBody = new ArrayBuffer(bodyRead.bytes.byteLength);
+  new Uint8Array(boundedBody).set(bodyRead.bytes);
+  const boundedRequest = new Request(request.url, {
+    method: "POST",
+    headers: boundedHeaders,
+    body: boundedBody,
+  });
+  const form = await boundedRequest.formData().catch(() => null);
   if (!form) {
     return NextResponse.json({ error: "Invalid upload form" }, { status: 400 });
   }
