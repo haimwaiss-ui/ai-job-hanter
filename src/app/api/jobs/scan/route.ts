@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { jobScanRequestSchema } from "@/lib/validation/job-hunter";
 import { JOB_SEARCH_GROUPS as SEARCH_GROUPS, normalizeJobUrl as normalizeUrl, searchTavilyGroup as searchGroup } from "@/lib/jobs/tavily";
-import { hasJsonContentType, isSameOriginMutation, contentLengthExceeds, MAX_JSON_BODY_BYTES } from "@/lib/http/request-guards";
+import { hasJsonContentType, isSameOriginMutation, readRequestTextLimited, MAX_JSON_BODY_BYTES } from "@/lib/http/request-guards";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -13,9 +13,6 @@ export async function POST(request: Request) {
   }
   if (!hasJsonContentType(request)) {
     return NextResponse.json({ error: "Expected application/json" }, { status: 415 });
-  }
-  if (contentLengthExceeds(request, MAX_JSON_BODY_BYTES)) {
-    return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   }
 
   const supabase = await createSupabaseServerClient();
@@ -30,9 +27,17 @@ export async function POST(request: Request) {
     }, { status: 503 });
   }
 
+  const bodyRead = await readRequestTextLimited(request, MAX_JSON_BODY_BYTES);
+  if (!bodyRead.ok) {
+    return NextResponse.json({
+      error: bodyRead.reason === "too_large" ? "Request body too large" : "Invalid JSON body",
+      code: bodyRead.reason === "too_large" ? "BODY_TOO_LARGE" : "INVALID_JSON",
+    }, { status: bodyRead.reason === "too_large" ? 413 : 400 });
+  }
+
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(bodyRead.text);
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -180,6 +185,6 @@ export async function POST(request: Request) {
     inserted: inserted.length,
     sourceCounts,
     failedSources: failedCount,
-    message: `נסרקו אתרי דרושים, LinkedIn, Facebook, X והרשת הכללית: נמצאו ${found} תוצאות ייחודיות, ${inserted.length} משרות חדשות נשמרו.`,
+    message: \`נסרקו אתרי דרושים, LinkedIn, Facebook, X והרשת הכללית: נמצאו \${found} תוצאות ייחודיות, \${inserted.length} משרות חדשות נשמרו.\`,
   });
 }
