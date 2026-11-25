@@ -8,6 +8,17 @@ The repository has typed BullMQ queues in `src/lib/queues/queues.ts`, strict Zod
 
 `npm run worker` starts `src/workers/main.ts`. Unless an operator explicitly sets `WORKER_HANDLER_MODULE`, the runtime loads the built-in `src/workers/handlers.ts` module.
 
+## Health probes
+
+The worker exposes two minimal HTTP probes from `src/workers/health-server.ts`:
+
+- `GET /live` returns 200 while the Node.js process and health server are responsive.
+- `GET /ready` returns 200 only after all three BullMQ workers have connected to Redis and are running; it returns 503 during startup, when a worker is paused/stopped, or after graceful shutdown begins.
+
+The response contains only a generic status and never includes tenant IDs, queue payloads, environment values, provider errors, or credentials. The default port is `8080`; `WORKER_HEALTH_PORT` and `WORKER_HEALTH_HOST` can override it. Bind the health listener to the container's private network and do not publish it as a public application endpoint.
+
+The process waits for all BullMQ workers to become ready before opening the health listener. On SIGTERM/SIGINT it marks readiness false first, drains the worker runtime, and then closes the health listener.
+
 ## Worker handlers
 
 - **Scraper:** uses the shared Tavily adapter in `src/lib/jobs/tavily.ts`, also used by the authenticated job-scan API. It searches only the selected public source group, validates provider output with Zod, normalizes public HTTP(S) result URLs, deduplicates by tenant-owned `source_url`, and inserts jobs through the user's JWT/RLS context.
@@ -30,6 +41,8 @@ Optional trusted operator settings:
 
 - `WORKER_HANDLER_MODULE` — defaults to `src/workers/handlers.ts`.
 - `SUBMISSION_ADAPTER_MODULE` — absolute path to an operator-reviewed adapter. Leave unset to force Manual Assist.
+- `WORKER_HEALTH_PORT` — defaults to `8080`.
+- `WORKER_HEALTH_HOST` — defaults to `0.0.0.0`; restrict access at the container/network layer.
 
 The worker host must use a narrowly scoped AWS workload identity that can read and rotate secrets only under the configured Secrets Manager prefix. It must not receive a Supabase service-role key.
 
