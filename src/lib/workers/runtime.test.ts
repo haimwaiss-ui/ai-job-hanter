@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_JOB_OPTIONS } from "@/lib/queues/queues";
-import { closeWorkerResources, PermanentWorkerError } from "./runtime";
+import {
+  closeWorkerResources,
+  drainPendingWorkerSideEffects,
+  PermanentWorkerError,
+  trackPendingWorkerSideEffect,
+} from "./runtime";
 import { toSafeWorkerError } from "./execution-log";
 
 describe("worker runtime controls", () => {
@@ -19,6 +24,66 @@ describe("worker runtime controls", () => {
       code: "OPENAI_NOT_CONFIGURED",
       message: "Background operation failed. A retry or manual review may follow.",
     });
+  });
+
+  it("drains asynchronous terminal-failure writes before closing the DLQ and Redis", async () => {
+    const order: string[] = [];
+    const pending = new Set<Promise<void>>();
+    let releaseSideEffect!: () => void;
+    const sideEffect = new Promise<void>((resolve) => {
+      releaseSideEffect = resolve;
+    });
+
+    trackPendingWorkerSideEffect(pending, sideEffect, () => {
+      order.push("side-effect-error");
+    });
+
+    const worker = {
+      close: vi.fn(async () => {
+        order.push("worker");
+      }),
+    };
+    const deadLetterQueue = {
+      close: vi.fn(async () => {
+        order.push("dead-letter");
+      }),
+    };
+    const connection = {
+      status: "ready",
+      quit: vi.fn(async () => {
+        order.push("redis");
+      }),
+    };
+
+    let markDrainStarted!: () => void;
+    const drainStarted = new Promise<void>((resolve) => {
+      markDrainStarted = resolve;
+    });
+    const closing = closeWorkerResources(
+      [worker],
+      deadLetterQueue,
+      connection as never,
+      async () => {
+        order.push("drain-start");
+        markDrainStarted();
+        await drainPendingWorkerSideEffects(pending);
+        order.push("drain-end");
+      },
+    );
+
+    await drainStarted;
+    expect(order).toEqual(["worker", "drain-start"]);
+    expect(deadLetterQueue.close).not.toHaveBeenCalled();
+    expect(connection.quit).not.toHaveBeenCalled();
+
+    releaseSideEffect();
+    await closing;
+
+    expect(order).toEqual(["worker", "drain-start", "drain-end", "dead-letter", "redis"]);
+    expect(worker.close).toHaveBeenCalledOnce();
+    expect(deadLetterQueue.close).toHaveBeenCalledOnce();
+    expect(connection.quit).toHaveBeenCalledOnce();
+    expect(pending.size).toBe(0);
   });
 
   it("closes workers, dead-letter queue, and Redis during graceful shutdown", async () => {
