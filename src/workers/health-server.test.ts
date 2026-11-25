@@ -69,8 +69,10 @@ describe("worker health probes", () => {
     });
 
     const response = await fetch(baseUrl + "/ready");
+    const body = await response.text();
+
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ status: "not_ready" });
-    expect(await response.text()).not.toContain("private diagnostic detail");
+    expect(JSON.parse(body)).toEqual({ status: "not_ready" });
+    expect(body).not.toContain("private diagnostic detail");
   });
 });
