@@ -797,6 +797,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      consume_user_api_rate_limit: {
+        Args: { p_bucket: string }
+        Returns: {
+          allowed: boolean
+          retry_after_seconds: number
+        }[]
+      }
       acquire_worker_provisioning_lock: {
         Args: {
           p_lease_seconds?: number

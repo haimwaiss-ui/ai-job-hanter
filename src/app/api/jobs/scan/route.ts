@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { parseUserApiRateLimitResult } from "@/lib/http/user-api-rate-limit";
 import { jobScanRequestSchema } from "@/lib/validation/job-hunter";
 import { JOB_SEARCH_GROUPS as SEARCH_GROUPS, normalizeJobUrl as normalizeUrl, searchTavilyGroup as searchGroup } from "@/lib/jobs/tavily";
 import { hasJsonContentType, isSameOriginMutation, readRequestTextLimited, MAX_JSON_BODY_BYTES } from "@/lib/http/request-guards";
@@ -66,6 +67,32 @@ export async function POST(request: Request) {
       error: "הזן תפקיד או מיומנויות בפרופיל לפני הפעלת הסריקה.",
       code: "JOB_SEARCH_QUERY_REQUIRED",
     }, { status: 422 });
+  }
+
+  const { data: rateLimitData, error: rateLimitError } = await supabase.rpc(
+    "consume_user_api_rate_limit",
+    { p_bucket: "job_scan" },
+  );
+  const rateLimit = parseUserApiRateLimitResult(rateLimitData);
+  if (rateLimitError || !rateLimit) {
+    console.error("job_scan_rate_limit_unavailable", rateLimitError?.code ?? "invalid_result");
+    return NextResponse.json({
+      error: "שירות הגבלת הבקשות אינו זמין כרגע. נסה שוב מאוחר יותר.",
+      code: "JOB_SCAN_RATE_LIMIT_UNAVAILABLE",
+    }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
+  if (!rateLimit.allowed) {
+    return NextResponse.json({
+      error: "בוצעו יותר מדי סריקות בזמן קצר. נסה שוב בעוד מספר שניות.",
+      code: "JOB_SCAN_RATE_LIMITED",
+      retryAfterSeconds: rateLimit.retry_after_seconds,
+    }, {
+      status: 429,
+      headers: {
+        "Retry-After": String(rateLimit.retry_after_seconds),
+        "Cache-Control": "no-store",
+      },
+    });
   }
 
   const baseQuery = [
