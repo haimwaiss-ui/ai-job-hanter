@@ -94,6 +94,76 @@ describe("submission safety and CAPTCHA fallback", () => {
     expect(() => validateExternalApplicationUrl("http://service.internal/")).toThrow();
   });
 
+  it("persists an outcome-unknown state that asks the user to verify before resubmitting", async () => {
+    const appRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: {
+          id: applicationId,
+          user_id: userId,
+          job_id: jobId,
+          resume_id: resumeId,
+          tailored_resume_storage_path: null,
+          status: "submitting",
+        },
+        error: null,
+      }),
+    };
+    const jobRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: {
+          application_url: "https://jobs.example/apply/123",
+          source_url: "https://jobs.example/jobs/123",
+        },
+        error: null,
+      }),
+    };
+    const resumeRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({ data: { storage_path: resumePath }, error: null }),
+    };
+    const appUpdate = {
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      neq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: applicationId }, error: null }),
+    };
+    let applicationReadCount = 0;
+    const supabase = {
+      from: vi.fn((table: string) => {
+        if (table === "applications") {
+          applicationReadCount += 1;
+          return applicationReadCount === 1 ? appRead : appUpdate;
+        }
+        if (table === "jobs") return jobRead;
+        if (table === "resumes") return resumeRead;
+        throw new Error("Unexpected table");
+      }),
+    } as unknown as SupabaseClient<Database>;
+
+    const submit = vi.fn().mockRejectedValue(new ManualAssistRequiredError("outcome_unknown"));
+    await expect(executeSubmissionWithFallback(supabase, {
+      userId,
+      applicationId,
+      signal: new AbortController().signal,
+      submit,
+    })).rejects.toMatchObject({ classification: "outcome_unknown" });
+
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(appUpdate.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: "manual_assist",
+      manual_assist_required: true,
+      manual_assist_url: "https://jobs.example/apply/123",
+      manual_assist_resume_storage_path: resumePath,
+      last_error: expect.stringContaining("Verify the application status before submitting again"),
+    }));
+  });
+
   it("persists Manual Assist and does not retry when CAPTCHA is detected", async () => {
     const appRead = {
       select: vi.fn().mockReturnThis(),
