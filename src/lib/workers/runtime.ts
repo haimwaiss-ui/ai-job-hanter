@@ -28,7 +28,11 @@ import type { ExecutionType } from "@/lib/supabase/types";
 import { createTenantWorkerClient, assertWorkerTenant } from "./tenant-client";
 import type { UserTokenVault } from "./token-vault";
 import { writeExecutionLog, toSafeWorkerError } from "./execution-log";
-import { ManualAssistRequiredError, PermanentSubmissionError } from "./submission";
+import {
+  ManualAssistRequiredError,
+  markSubmissionManualAssist,
+  PermanentSubmissionError,
+} from "./submission";
 
 type WorkerPayload =
   | ScraperQueuePayload
@@ -75,12 +79,20 @@ const defaultLogger: SafeLogger = {
   error: (event, fields) => console.error(JSON.stringify({ level: "error", event, ...fields })),
 };
 
-class WorkerTimeoutError extends Error {
+export class WorkerTimeoutError extends Error {
   readonly code = "WORKER_TIMEOUT";
   constructor() {
     super("Background worker timed out");
     this.name = "WorkerTimeoutError";
   }
+}
+
+export function isAmbiguousSubmissionTimeout(
+  queueName: WorkerQueueName,
+  error: unknown,
+): boolean {
+  return queueName === QUEUE_NAMES.submission &&
+    error instanceof WorkerTimeoutError;
 }
 
 function withTimeout<T>(
@@ -337,9 +349,148 @@ function createTypedWorker<P extends WorkerPayload>(
           await updateOperation(supabase, payload, queueName, "completed");
           return { completed: true };
         } catch (error) {
-          if (error instanceof ManualAssistRequiredError) {
-            const safe = toSafeWorkerError(error);
-            await updateOperation(supabase, payload, queueName, "manual_assist", safe);
+          let normalizedError: unknown = error;
+          if (isAmbiguousSubmissionTimeout(queueName, error)) {
+            const submission = payload as SubmissionQueuePayload;
+            let manualAssist: Awaited<ReturnType<typeof markSubmissionManualAssist>>;
+            try {
+              manualAssist = await markSubmissionManualAssist(
+                supabase,
+                payload.userId,
+                submission.applicationId,
+                true,
+              );
+            } catch {
+              const safe = toSafeWorkerError({ code: "SUBMISSION_OUTCOME_UNKNOWN" });
+              try {
+                await updateOperation(supabase, payload, queueName, "failed", safe);
+                await writeExecutionLog(supabase, {
+                  userId: payload.userId,
+                  executionType,
+                  status: "failed",
+                  operation: queueName,
+                  attemptNumber: attempt,
+                  durationMs: Date.now() - startedAt,
+                  applicationId: submission.applicationId,
+                  error: safe,
+                  metadata: {
+                    queueName,
+                    operationId: payload.operationId,
+                    idempotencyKey: payload.idempotencyKey,
+                    outcomeUnknown: true,
+                    manualAssistPersistenceFailed: true,
+                  },
+                });
+              } catch {
+                dependencies.logger.error("submission_timeout_failure_record_failed", {
+                  queueName,
+                  jobId: job.id ?? null,
+                  userId: payload.userId,
+                });
+              }
+              try {
+                await publishDeadLetter(
+                  dependencies.deadLetterQueue,
+                  queueName,
+                  job as Job<WorkerPayload>,
+                  payload,
+                  safe.code,
+                  attempt,
+                );
+              } catch {
+                dependencies.logger.error("submission_timeout_dead_letter_failed", {
+                  queueName,
+                  jobId: job.id ?? null,
+                  userId: payload.userId,
+                });
+              }
+              throw new UnrecoverableError(
+                "Submission outcome could not be confirmed; manual review is required",
+              );
+            }
+
+            if (manualAssist.alreadySubmitted) {
+              try {
+                await updateOperation(supabase, payload, queueName, "completed");
+              } catch {
+                const safe = toSafeWorkerError({ code: "SUBMISSION_RECONCILIATION_FAILED" });
+                try {
+                  await publishDeadLetter(
+                    dependencies.deadLetterQueue,
+                    queueName,
+                    job as Job<WorkerPayload>,
+                    payload,
+                    safe.code,
+                    attempt,
+                  );
+                } catch {
+                  dependencies.logger.error("submission_reconciliation_dead_letter_failed", {
+                    queueName,
+                    jobId: job.id ?? null,
+                    userId: payload.userId,
+                  });
+                }
+                throw new UnrecoverableError(
+                  "Submission was confirmed but its worker operation could not be reconciled",
+                );
+              }
+              try {
+                await writeExecutionLog(supabase, {
+                  userId: payload.userId,
+                  executionType,
+                  status: "success",
+                  operation: queueName,
+                  attemptNumber: attempt,
+                  durationMs: Date.now() - startedAt,
+                  applicationId: submission.applicationId,
+                  metadata: {
+                    queueName,
+                    operationId: payload.operationId,
+                    idempotencyKey: payload.idempotencyKey,
+                    reconciledAfterTimeout: true,
+                  },
+                });
+              } catch {
+                dependencies.logger.error("submission_reconciliation_log_failed", {
+                  queueName,
+                  jobId: job.id ?? null,
+                  userId: payload.userId,
+                });
+              }
+              return { completed: true, reconciledAfterTimeout: true };
+            }
+
+            normalizedError = new ManualAssistRequiredError("outcome_unknown");
+          }
+
+          if (normalizedError instanceof ManualAssistRequiredError) {
+            const safe = toSafeWorkerError(normalizedError);
+            try {
+              await updateOperation(supabase, payload, queueName, "manual_assist", safe);
+            } catch {
+              if (queueName === QUEUE_NAMES.submission) {
+                try {
+                  await publishDeadLetter(
+                    dependencies.deadLetterQueue,
+                    queueName,
+                    job as Job<WorkerPayload>,
+                    payload,
+                    safe.code,
+                    attempt,
+                  );
+                } catch {
+                  dependencies.logger.error("submission_manual_assist_dead_letter_failed", {
+                    queueName,
+                    jobId: job.id ?? null,
+                    userId: payload.userId,
+                  });
+                }
+                throw new UnrecoverableError(
+                  "Submission requires manual review; automatic retry has been stopped",
+                );
+              }
+              throw new Error("Worker manual-assist state could not be persisted");
+            }
             try {
               await writeExecutionLog(supabase, {
                 userId: payload.userId,
@@ -351,7 +502,7 @@ function createTypedWorker<P extends WorkerPayload>(
                 jobId: refs.jobId,
                 applicationId: refs.applicationId,
                 error: safe,
-                fallbackReason: error.code,
+                fallbackReason: normalizedError.code,
                 metadata: {
                   queueName,
                   operationId: payload.operationId,
@@ -370,16 +521,17 @@ function createTypedWorker<P extends WorkerPayload>(
               queueName,
               jobId: job.id ?? null,
               userId: payload.userId,
-              reason: error.code,
+              reason: normalizedError.code,
             });
             return { manualAssist: true };
           }
 
-          const safe = toSafeWorkerError(error);
+          const safe = toSafeWorkerError(normalizedError);
           const configuredAttempts = typeof job.opts.attempts === "number"
             ? job.opts.attempts
             : Number(DEFAULT_JOB_OPTIONS.attempts ?? 5);
-          const permanent = error instanceof PermanentSubmissionError || error instanceof PermanentWorkerError;
+          const permanent = normalizedError instanceof PermanentSubmissionError ||
+            normalizedError instanceof PermanentWorkerError;
           const finalAttempt = permanent || attempt >= configuredAttempts;
           const status: WorkerOperationStatus = finalAttempt ? "failed" : "retrying";
 

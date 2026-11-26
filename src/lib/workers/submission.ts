@@ -23,7 +23,7 @@ export class PermanentSubmissionError extends Error {
 export class ManualAssistRequiredError extends Error {
   readonly code: string;
 
-  constructor(readonly classification: "captcha" | "site_blocked" | "authentication_required" | "manual_required") {
+  constructor(readonly classification: "captcha" | "site_blocked" | "authentication_required" | "manual_required" | "outcome_unknown") {
     super("Automated submission paused for human assistance");
     this.name = "ManualAssistRequiredError";
     this.code = classification === "captcha"
@@ -32,7 +32,9 @@ export class ManualAssistRequiredError extends Error {
         ? "SITE_BLOCKED"
         : classification === "manual_required"
           ? "MANUAL_ASSIST_REQUIRED"
-          : "AUTH_REQUIRED";
+          : classification === "outcome_unknown"
+            ? "SUBMISSION_OUTCOME_UNKNOWN"
+            : "AUTH_REQUIRED";
   }
 }
 
@@ -69,6 +71,7 @@ export function buildManualAssistPatch(input: {
   applicationUrl: string;
   existingTailoredResumePath: string | null;
   sourceResumePath: string | null;
+  outcomeUnknown?: boolean;
 }) {
   return {
     status: "manual_assist" as const,
@@ -76,7 +79,9 @@ export function buildManualAssistPatch(input: {
     manual_assist_url: validateExternalApplicationUrl(input.applicationUrl),
     manual_assist_resume_storage_path:
       input.existingTailoredResumePath ?? input.sourceResumePath ?? null,
-    last_error: "Automated submission stopped; complete this application manually.",
+    last_error: input.outcomeUnknown
+      ? "Submission outcome could not be confirmed. Verify the application status before submitting again."
+      : "Automated submission stopped; complete this application manually.",
     updated_at: new Date().toISOString(),
   };
 }
@@ -93,16 +98,24 @@ export async function markSubmissionManualAssist(
   supabase: SupabaseClient<Database>,
   userId: string,
   applicationId: string,
-): Promise<{ applicationUrl: string; resumeStoragePath: string | null }> {
+  outcomeUnknown = false,
+): Promise<{
+  applicationUrl: string | null;
+  resumeStoragePath: string | null;
+  alreadySubmitted: boolean;
+}> {
   const { data: application, error: applicationError } = await supabase
     .from("applications")
-    .select("id,user_id,job_id,resume_id,tailored_resume_storage_path")
+    .select("id,user_id,job_id,resume_id,tailored_resume_storage_path,status")
     .eq("id", applicationId)
     .eq("user_id", userId)
     .single();
 
   if (applicationError || !application) {
     throw new Error("Application not found for authenticated tenant");
+  }
+  if (application.status === "submitted") {
+    return { applicationUrl: null, resumeStoragePath: null, alreadySubmitted: true };
   }
 
   const { data: job, error: jobError } = await supabase
@@ -131,19 +144,36 @@ export async function markSubmissionManualAssist(
     applicationUrl,
     existingTailoredResumePath: application.tailored_resume_storage_path,
     sourceResumePath,
+    outcomeUnknown,
   });
 
-  const { error: updateError } = await supabase
+  const { data: updated, error: updateError } = await supabase
     .from("applications")
     .update(patch)
     .eq("id", applicationId)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .neq("status", "submitted")
+    .select("id")
+    .maybeSingle();
 
   if (updateError) throw new Error("Unable to persist manual-assist state");
+  if (!updated) {
+    const { data: latest, error: latestError } = await supabase
+      .from("applications")
+      .select("status")
+      .eq("id", applicationId)
+      .eq("user_id", userId)
+      .single();
+    if (!latestError && latest?.status === "submitted") {
+      return { applicationUrl: null, resumeStoragePath: null, alreadySubmitted: true };
+    }
+    throw new Error("Unable to confirm manual-assist application state");
+  }
 
   return {
     applicationUrl: patch.manual_assist_url,
     resumeStoragePath: patch.manual_assist_resume_storage_path,
+    alreadySubmitted: false,
   };
 }
 
@@ -151,6 +181,10 @@ export async function markSubmissionManualAssist(
  * Wrap a real submission adapter. CAPTCHA, site blocks, and expired login
  * sessions become Manual Assist; there is intentionally no bypass/retry path.
  */
+export function assertSubmissionSignalActive(signal: AbortSignal): void {
+  if (signal.aborted) throw new ManualAssistRequiredError("outcome_unknown");
+}
+
 export async function executeSubmissionWithFallback(
   supabase: SupabaseClient<Database>,
   input: {
@@ -159,12 +193,18 @@ export async function executeSubmissionWithFallback(
     signal: AbortSignal;
     submit: (signal: AbortSignal) => Promise<void>;
   },
-): Promise<void> {
+): Promise<"already_submitted" | void> {
   try {
     await input.submit(input.signal);
   } catch (error) {
     if (error instanceof ManualAssistRequiredError) {
-      await markSubmissionManualAssist(supabase, input.userId, input.applicationId);
+      const persisted = await markSubmissionManualAssist(
+        supabase,
+        input.userId,
+        input.applicationId,
+        error.classification === "outcome_unknown",
+      );
+      if (persisted.alreadySubmitted) return "already_submitted";
       throw error;
     }
     const classification = classifySubmissionFailure(error);
@@ -173,7 +213,8 @@ export async function executeSubmissionWithFallback(
       classification === "site_blocked" ||
       classification === "authentication_required"
     ) {
-      await markSubmissionManualAssist(supabase, input.userId, input.applicationId);
+      const persisted = await markSubmissionManualAssist(supabase, input.userId, input.applicationId);
+      if (persisted.alreadySubmitted) return "already_submitted";
       throw new ManualAssistRequiredError(classification);
     }
     if (classification === "permanent_validation") {
