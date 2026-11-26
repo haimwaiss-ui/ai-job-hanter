@@ -79,7 +79,7 @@ const defaultLogger: SafeLogger = {
   error: (event, fields) => console.error(JSON.stringify({ level: "error", event, ...fields })),
 };
 
-class WorkerTimeoutError extends Error {
+export class WorkerTimeoutError extends Error {
   readonly code = "WORKER_TIMEOUT";
   constructor() {
     super("Background worker timed out");
@@ -521,7 +521,7 @@ function createTypedWorker<P extends WorkerPayload>(
               queueName,
               jobId: job.id ?? null,
               userId: payload.userId,
-              reason: error.code,
+              reason: normalizedError.code,
             });
             return { manualAssist: true };
           }
