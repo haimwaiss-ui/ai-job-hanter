@@ -193,7 +193,7 @@ export async function executeSubmissionWithFallback(
     signal: AbortSignal;
     submit: (signal: AbortSignal) => Promise<void>;
   },
-): Promise<void> {
+): Promise<"already_submitted" | void> {
   try {
     await input.submit(input.signal);
   } catch (error) {
@@ -204,7 +204,7 @@ export async function executeSubmissionWithFallback(
         input.applicationId,
         error.classification === "outcome_unknown",
       );
-      if (persisted.alreadySubmitted) return;
+      if (persisted.alreadySubmitted) return "already_submitted";
       throw error;
     }
     const classification = classifySubmissionFailure(error);
