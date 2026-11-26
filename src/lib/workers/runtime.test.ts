@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_JOB_OPTIONS } from "@/lib/queues/queues";
+import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from "@/lib/queues/queues";
 import {
   closeWorkerResources,
   drainPendingWorkerSideEffects,
+  isAmbiguousSubmissionTimeout,
   PermanentWorkerError,
   trackPendingWorkerSideEffect,
+  WorkerTimeoutError,
 } from "./runtime";
 import { toSafeWorkerError } from "./execution-log";
 
@@ -16,6 +18,14 @@ describe("worker runtime controls", () => {
       delay: 2_000,
       jitter: 0.5,
     });
+  });
+
+  it("stops automatic retries for ambiguous submission timeouts only", () => {
+    const timeout = new WorkerTimeoutError();
+
+    expect(isAmbiguousSubmissionTimeout(QUEUE_NAMES.submission, timeout)).toBe(true);
+    expect(isAmbiguousSubmissionTimeout(QUEUE_NAMES.scraper, timeout)).toBe(false);
+    expect(isAmbiguousSubmissionTimeout(QUEUE_NAMES.submission, new Error("timeout"))).toBe(false);
   });
 
   it("marks missing provider configuration as a permanent, sanitized failure", () => {
