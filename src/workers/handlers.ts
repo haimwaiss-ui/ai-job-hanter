@@ -12,6 +12,7 @@ import {
   type JobSearchGroup,
 } from "@/lib/jobs/tavily";
 import {
+  assertSubmissionSignalActive,
   executeSubmissionWithFallback,
   ManualAssistRequiredError,
   markSubmissionManualAssist,
@@ -431,11 +432,12 @@ async function submitApplication(
 
   let externalApplicationId: string | null = null;
   try {
-    await executeSubmissionWithFallback(context.supabase, {
+    const fallbackOutcome = await executeSubmissionWithFallback(context.supabase, {
       userId: context.userId,
       applicationId: payload.applicationId,
       signal: context.signal,
       submit: async (signal) => {
+        assertSubmissionSignalActive(signal);
         const rawResult = await adapter.submitApplication({
           supabase: context.supabase,
           userId: context.userId,
@@ -443,6 +445,9 @@ async function submitApplication(
           idempotencyKey: payload.idempotencyKey,
           signal,
         });
+        // A late adapter response after the worker timeout is ambiguous. Do
+        // not let it mark the application submitted or trigger another attempt.
+        assertSubmissionSignalActive(signal);
         const parsedResult = submissionAdapterResultSchema.safeParse(rawResult);
         if (!parsedResult.success) {
           throw new Error("Submission adapter did not confirm a completed application");
@@ -450,6 +455,8 @@ async function submitApplication(
         externalApplicationId = parsedResult.data.externalApplicationId ?? null;
       },
     });
+    if (fallbackOutcome === "already_submitted") return;
+    assertSubmissionSignalActive(context.signal);
   } catch (error) {
     if (error instanceof ManualAssistRequiredError) throw error;
     if (error instanceof PermanentSubmissionError) {
@@ -460,10 +467,23 @@ async function submitApplication(
       throw error;
     }
 
-    // A timeout or network error may happen after the external form accepted the
+    // A network/adapter failure may happen after the external form accepted the
     // application. Never retry an ambiguous external side effect automatically.
-    await markSubmissionManualAssist(context.supabase, context.userId, payload.applicationId);
-    throw new ManualAssistRequiredError("manual_required");
+    try {
+      const manualAssist = await markSubmissionManualAssist(
+        context.supabase,
+        context.userId,
+        payload.applicationId,
+        true,
+      );
+      if (manualAssist.alreadySubmitted) return;
+    } catch {
+      throw new PermanentWorkerError(
+        "SUBMISSION_MANUAL_ASSIST_PERSIST_FAILED",
+        "Submission outcome could not be confirmed; automatic retries are disabled.",
+      );
+    }
+    throw new ManualAssistRequiredError("outcome_unknown");
   }
 
   const { data: completed, error: completionError } = await context.supabase.from("applications")
