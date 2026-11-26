@@ -414,7 +414,12 @@ async function submitApplication(
 
   const adapterPath = dependencies.submissionAdapterModule ?? process.env.SUBMISSION_ADAPTER_MODULE;
   if (!adapterPath) {
-    await markSubmissionManualAssist(context.supabase, context.userId, payload.applicationId);
+    const manualAssist = await markSubmissionManualAssist(
+      context.supabase,
+      context.userId,
+      payload.applicationId,
+    );
+    if (manualAssist.alreadySubmitted) return;
     throw new ManualAssistRequiredError("manual_required");
   }
 
