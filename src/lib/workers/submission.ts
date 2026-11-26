@@ -213,7 +213,8 @@ export async function executeSubmissionWithFallback(
       classification === "site_blocked" ||
       classification === "authentication_required"
     ) {
-      await markSubmissionManualAssist(supabase, input.userId, input.applicationId);
+      const persisted = await markSubmissionManualAssist(supabase, input.userId, input.applicationId);
+      if (persisted.alreadySubmitted) return "already_submitted";
       throw new ManualAssistRequiredError(classification);
     }
     if (classification === "permanent_validation") {
