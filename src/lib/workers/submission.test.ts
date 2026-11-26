@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import {
+  assertSubmissionSignalActive,
   buildManualAssistPatch,
   classifySubmissionFailure,
   executeSubmissionWithFallback,
   ManualAssistRequiredError,
+  markSubmissionManualAssist,
   validateExternalApplicationUrl,
 } from "./submission";
 
@@ -24,6 +26,52 @@ describe("submission safety and CAPTCHA fallback", () => {
   it("uses a stable manual-assist code when no approved adapter is available", () => {
     const error = new ManualAssistRequiredError("manual_required");
     expect(error.code).toBe("MANUAL_ASSIST_REQUIRED");
+  });
+
+  it("describes ambiguous submission outcomes without prompting an unsafe resubmission", () => {
+    const patch = buildManualAssistPatch({
+      applicationUrl: "https://jobs.example/apply/123",
+      existingTailoredResumePath: null,
+      sourceResumePath: resumePath,
+      outcomeUnknown: true,
+    });
+
+    expect(patch.last_error).toContain("Verify the application status before submitting again");
+    expect(new ManualAssistRequiredError("outcome_unknown").code).toBe("SUBMISSION_OUTCOME_UNKNOWN");
+  });
+
+  it("converts an aborted late adapter response into manual assistance", () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    expect(() => assertSubmissionSignalActive(controller.signal))
+      .toThrow(ManualAssistRequiredError);
+  });
+
+  it("does not downgrade an application already confirmed as submitted", async () => {
+    const applicationRead = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockResolvedValue({
+        data: {
+          id: applicationId,
+          user_id: userId,
+          job_id: jobId,
+          resume_id: resumeId,
+          tailored_resume_storage_path: null,
+          status: "submitted",
+        },
+        error: null,
+      }),
+    };
+    const supabase = {
+      from: vi.fn().mockReturnValue(applicationRead),
+    } as unknown as SupabaseClient<Database>;
+
+    const result = await markSubmissionManualAssist(supabase, userId, applicationId, true);
+
+    expect(result.alreadySubmitted).toBe(true);
+    expect(supabase.from).toHaveBeenCalledTimes(1);
   });
 
   it("preserves a private PDF storage path and direct application URL", () => {
@@ -57,6 +105,7 @@ describe("submission safety and CAPTCHA fallback", () => {
           job_id: jobId,
           resume_id: resumeId,
           tailored_resume_storage_path: null,
+          status: "approved",
         },
         error: null,
       }),
@@ -80,6 +129,9 @@ describe("submission safety and CAPTCHA fallback", () => {
     const appUpdate = {
       update: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      neq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: applicationId }, error: null }),
     };
 
     let applicationReadCount = 0;
