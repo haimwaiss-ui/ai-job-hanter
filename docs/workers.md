@@ -90,3 +90,20 @@ Run database integration tests only against an isolated Supabase project with tw
 ### Tenant RLS integration test
 
 `tests/integration/worker-rls.integration.test.ts` requires an isolated Supabase test project, an explicit matching `SUPABASE_TEST_PROJECT_ID`, and two distinct valid user access tokens in `TEST_USER_A_ACCESS_TOKEN` and `TEST_USER_B_ACCESS_TOKEN`. It refuses to run against the connected Production project ref. It uploads a temporary PDF under user A, confirms user B cannot read, update, delete, or download the resume row/object, and cleans up through the owner's JWT. The live database's composite application/job and application/resume foreign keys were separately verified to include `user_id`. The integration test is intentionally excluded from the default unit-test command and must never be pointed at Production.
+
+
+## Authenticated queue ingress API
+
+`POST /api/worker-queues` accepts one strict Zod-discriminated request for `scraper-queue`, `ai-processing-queue`, or `submission-queue`. It returns HTTP 202 with a queue name, BullMQ job ID, and operation ID after Redis accepts the job.
+
+Example request bodies:
+
+```json
+{ "queue": "scraper-queue", "source": "alljobs", "searchProfileVersion": 1, "runKey": "manual-run-2026-11" }
+{ "queue": "ai-processing-queue", "jobId": "20000000-0000-4000-8000-000000000002", "resumeId": "30000000-0000-4000-8000-000000000003", "mode": "match" }
+{ "queue": "submission-queue", "applicationId": "40000000-0000-4000-8000-000000000004" }
+```
+
+The route derives `userId` from the verified Supabase session. It rejects caller-supplied `userId`, operation IDs, idempotency keys, token-vault references, access/refresh tokens, and unknown fields. Enqueue helpers repeat strict payload parsing, require a non-revoked and provisioned worker session, and verify that AI job/resume or submission application records belong to the authenticated user before adding a job.
+
+A missing or incomplete worker session returns HTTP 409. Redis/configuration failures return a generic HTTP 503 without exposing provider or connection details. The route enforces same-origin JSON requests and a streamed 32 KiB body limit. The existing `POST /api/jobs/scan` route remains synchronous; this new endpoint is the explicit BullMQ ingress and should be used by an async UI flow only after Redis and a dedicated worker host are configured.
